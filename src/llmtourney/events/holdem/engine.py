@@ -557,6 +557,18 @@ class HoldemEvent(Event):
         else:
             winner = None  # split pot
 
+        # Refund unmatched excess in all-in situations.
+        # The effective pot is 2 * min(invested) -- each player can only
+        # contest what the shorter stack put in.  Any surplus goes back.
+        inv_a = self._invested["player_a"]
+        inv_b = self._invested["player_b"]
+        if inv_a != inv_b:
+            excess = abs(inv_a - inv_b)
+            over_bettor = "player_a" if inv_a > inv_b else "player_b"
+            self._stacks[over_bettor] += excess
+            self._pot -= excess
+            self._invested[over_bettor] -= excess
+
         pot = self._pot
 
         # Detect all-in highlight
@@ -643,9 +655,14 @@ class HoldemEvent(Event):
         # Comeback: trailing player wins pot > 20% of total chips
         total_chips = self._starting_stack * 2
         if winner is not None:
-            # Check if winner was trailing before winning
+            # Check if winner was trailing before winning.
+            # At this point _finish_hand has already awarded the pot to the winner.
+            # winner's pre-hand stack = current stack - pot + what they invested
+            # opponent's pre-hand stack = current stack + what they invested
+            # Since invested amounts are equal (excess already refunded), the
+            # invested terms cancel in the comparison, giving us:
             winner_stack_before = self._stacks[winner] - pot
-            opponent_stack_before = self._stacks[self._opponent(winner)] + pot
+            opponent_stack_before = self._stacks[self._opponent(winner)]
             if winner_stack_before < opponent_stack_before and pot > 0.2 * total_chips:
                 self._highlight_hands.append(hand_num)
                 return
