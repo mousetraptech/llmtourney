@@ -1,0 +1,24 @@
+tournament:
+  name: "test-run"
+  seed: 42
+  version: "0.1.0"
+
+models:
+  mock-caller:
+    provider: mock
+    strategy: always_call
+  mock-heuristic:
+    provider: mock
+    strategy: simple_heuristic
+
+events:
+  holdem:
+    weight: 3
+    hands_per_match: 100
+    starting_stack: 200
+    blinds: [1, 2]
+    rounds: 1
+
+compute_caps:
+  max_output_tokens: 256
+  timeout_s: 30.0
