@@ -2,6 +2,7 @@
 
 import pytest
 from llmtourney.core.adapter import (
+    AdapterError,
     AdapterResponse,
     MockAdapter,
     ModelAdapter,
@@ -76,3 +77,44 @@ class TestMockAdapter:
 
         adapter = MockAdapter(model_id="mock", strategy=strategy)
         assert isinstance(adapter, ModelAdapter)
+
+
+class TestAdapterError:
+    def test_is_exception(self):
+        err = AdapterError("timeout", model_id="gpt-4o", details="connection timed out")
+        assert isinstance(err, Exception)
+        assert err.error_type == "timeout"
+        assert err.model_id == "gpt-4o"
+        assert "connection timed out" in str(err)
+
+    def test_adapter_error_types(self):
+        for etype in ("timeout", "rate_limit", "api_error"):
+            err = AdapterError(etype, model_id="test")
+            assert err.error_type == etype
+
+
+class TestContextInABC:
+    def test_mock_adapter_accepts_context(self):
+        def strategy(messages, context):
+            return f'{{"got_context": {bool(context)}}}'
+
+        adapter = MockAdapter(model_id="mock", strategy=strategy)
+        resp = adapter.query(
+            messages=[{"role": "user", "content": "test"}],
+            max_tokens=256,
+            timeout_s=30.0,
+            context={"key": "value"},
+        )
+        assert "true" in resp.raw_text.lower()
+
+    def test_mock_adapter_context_defaults_none(self):
+        def strategy(messages, context):
+            return '{"action": "call"}'
+
+        adapter = MockAdapter(model_id="mock", strategy=strategy)
+        resp = adapter.query(
+            messages=[{"role": "user", "content": "test"}],
+            max_tokens=256,
+            timeout_s=30.0,
+        )
+        assert resp.raw_text == '{"action": "call"}'

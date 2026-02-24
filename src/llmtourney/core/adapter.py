@@ -11,6 +11,21 @@ from typing import Any, Callable
 import time
 
 
+class AdapterError(Exception):
+    """Raised by adapters on API failures. Never let raw SDK exceptions propagate."""
+
+    def __init__(
+        self,
+        error_type: str,
+        model_id: str,
+        details: str = "",
+    ):
+        self.error_type = error_type  # "timeout", "rate_limit", "api_error"
+        self.model_id = model_id
+        self.details = details
+        super().__init__(f"{error_type} from {model_id}: {details}")
+
+
 @dataclass(frozen=True)
 class AdapterResponse:
     """Immutable response from a model query."""
@@ -33,6 +48,7 @@ class ModelAdapter(ABC):
         messages: list[dict[str, str]],
         max_tokens: int,
         timeout_s: float,
+        context: dict[str, Any] | None = None,
     ) -> AdapterResponse:
         """Send messages to the model and return its response."""
 
