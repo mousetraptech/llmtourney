@@ -162,6 +162,32 @@ class TournamentEngine:
             )
         return key
 
+    def _safe_query(
+        self, adapter, messages: list[dict[str, str]], model_name: str, seed: int
+    ) -> tuple[AdapterResponse, bool]:
+        """Call adapter.query, catching AdapterError.
+
+        Returns (response, success). On failure, returns a dummy response.
+        """
+        try:
+            response = adapter.query(
+                messages=messages,
+                max_tokens=self.config.compute_caps.max_output_tokens,
+                timeout_s=self.config.compute_caps.timeout_s,
+                context={"seed": seed},
+            )
+            return response, True
+        except AdapterError:
+            return AdapterResponse(
+                raw_text="",
+                reasoning_text=None,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=0.0,
+                model_id=model_name,
+                model_version=model_name,
+            ), False
+
     def _build_event(self, event_name: str, event_cfg: EventConfig) -> HoldemEvent:
         """Instantiate an event engine from config."""
         # Currently only holdem is supported
@@ -211,23 +237,10 @@ class TournamentEngine:
             snapshot = event.get_state_snapshot()
 
             # Query model
-            try:
-                response = adapter.query(
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=self.config.compute_caps.max_output_tokens,
-                    timeout_s=self.config.compute_caps.timeout_s,
-                    context={"seed": seed},
-                )
-            except AdapterError:
-                response = AdapterResponse(
-                    raw_text="",
-                    reasoning_text=None,
-                    input_tokens=0,
-                    output_tokens=0,
-                    latency_ms=0.0,
-                    model_id=model_name,
-                    model_version=model_name,
-                )
+            response, query_ok = self._safe_query(
+                adapter, [{"role": "user", "content": prompt}], model_name, seed
+            )
+            if not query_ok:
                 referee.record_violation(
                     player_id, ViolationKind.TIMEOUT, severity=2,
                     details="adapter error",
@@ -274,28 +287,17 @@ class TournamentEngine:
                     retry_prompt = event.get_retry_prompt(
                         player_id, parsed.error or "malformed JSON"
                     )
-                    try:
-                        response = adapter.query(
-                            messages=[{"role": "user", "content": retry_prompt}],
-                            max_tokens=self.config.compute_caps.max_output_tokens,
-                            timeout_s=self.config.compute_caps.timeout_s,
-                            context={"seed": seed},
-                        )
-                    except AdapterError:
-                        response = AdapterResponse(
-                            raw_text="",
-                            reasoning_text=None,
-                            input_tokens=0,
-                            output_tokens=0,
-                            latency_ms=0.0,
-                            model_id=model_name,
-                            model_version=model_name,
-                        )
-                        raw_text = ""
-                        parsed = parser.parse("", event.action_schema)
-                    else:
+                    response, retry_ok = self._safe_query(
+                        adapter,
+                        [{"role": "user", "content": retry_prompt}],
+                        model_name, seed,
+                    )
+                    if retry_ok:
                         raw_text = sanitize_text(response.raw_text)
                         parsed = parser.parse(raw_text, event.action_schema)
+                    else:
+                        raw_text = ""
+                        parsed = parser.parse("", event.action_schema)
 
                 if not parsed.success:
                     turn_number += 1
@@ -335,28 +337,17 @@ class TournamentEngine:
                     retry_prompt = event.get_retry_prompt(
                         player_id, validation.reason or "illegal move"
                     )
-                    try:
-                        response = adapter.query(
-                            messages=[{"role": "user", "content": retry_prompt}],
-                            max_tokens=self.config.compute_caps.max_output_tokens,
-                            timeout_s=self.config.compute_caps.timeout_s,
-                            context={"seed": seed},
-                        )
-                    except AdapterError:
-                        response = AdapterResponse(
-                            raw_text="",
-                            reasoning_text=None,
-                            input_tokens=0,
-                            output_tokens=0,
-                            latency_ms=0.0,
-                            model_id=model_name,
-                            model_version=model_name,
-                        )
-                        raw_text = ""
-                        parsed = parser.parse("", event.action_schema)
-                    else:
+                    response, retry_ok = self._safe_query(
+                        adapter,
+                        [{"role": "user", "content": retry_prompt}],
+                        model_name, seed,
+                    )
+                    if retry_ok:
                         raw_text = sanitize_text(response.raw_text)
                         parsed = parser.parse(raw_text, event.action_schema)
+                    else:
+                        raw_text = ""
+                        parsed = parser.parse("", event.action_schema)
                     if parsed.success:
                         validation = event.validate_action(
                             player_id, parsed.action

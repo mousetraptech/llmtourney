@@ -1,8 +1,14 @@
 """ModelAdapter — uniform interface for LLM API calls.
 
-Provides ABC and concrete implementations:
+Provides ABC, error types, and the mock implementation:
+- ModelAdapter: abstract base class for all adapters
+- AdapterError: unified exception for API failures
 - MockAdapter: deterministic, offline, for testing
-- OpenAIAdapter / AnthropicAdapter: stubs for future live API use
+
+Live adapters are in separate modules:
+- openai_adapter.py: OpenAIAdapter
+- anthropic_adapter.py: AnthropicAdapter
+- openrouter_adapter.py: OpenRouterAdapter
 """
 
 from abc import ABC, abstractmethod
