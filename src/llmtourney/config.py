@@ -8,9 +8,13 @@ from pathlib import Path
 @dataclass
 class ModelConfig:
     name: str
-    provider: str  # "mock", "openai", "anthropic"
+    provider: str  # "mock", "openai", "anthropic", "openrouter"
     model_id: str | None = None
     strategy: str | None = None  # for mock provider
+    api_key_env: str | None = None      # env var name for API key
+    base_url: str | None = None         # custom API base URL
+    site_url: str | None = None         # OpenRouter attribution
+    app_name: str | None = None         # OpenRouter attribution
     temperature: float = 0.0
     max_output_tokens: int = 256
     timeout_s: float = 30.0
@@ -58,6 +62,10 @@ def load_config(path: Path) -> TournamentConfig:
             provider=m["provider"],
             model_id=m.get("model_id"),
             strategy=m.get("strategy"),
+            api_key_env=m.get("api_key_env"),
+            base_url=m.get("base_url"),
+            site_url=m.get("site_url"),
+            app_name=m.get("app_name"),
             temperature=m.get("temperature", 0.0),
             max_output_tokens=m.get(
                 "max_output_tokens", compute.get("max_output_tokens", 256)
