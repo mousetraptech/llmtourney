@@ -1,7 +1,11 @@
 """ActionParser — extract and validate JSON actions from raw model output.
 
-Finds the first valid JSON object in raw text, validates it against
+Finds the last valid JSON object in raw text, validates it against
 a per-event JSON Schema, and flags prompt injection attempts.
+
+Uses last-wins semantics: models that self-correct mid-output
+(outputting a second JSON after "Wait, let me reconsider...") get
+their final answer used, not their first draft.
 """
 
 import json
@@ -28,7 +32,11 @@ class ParseResult:
 
 
 class ActionParser:
-    """Extract first valid JSON object from text and validate against schema."""
+    """Extract last valid JSON object from text and validate against schema.
+
+    Last-wins: when a model self-corrects mid-output, the final JSON
+    is its intended action, not the first draft.
+    """
 
     def parse(self, raw_text: str, schema: dict) -> ParseResult:
         injection = detect_injection(raw_text)
@@ -45,6 +53,8 @@ class ActionParser:
             )
 
         last_error = None
+        best = None  # last valid (action, raw_json) pair
+
         for candidate in candidates:
             try:
                 parsed = json.loads(candidate)
@@ -62,10 +72,13 @@ class ActionParser:
                 last_error = f"Schema validation: {e.message}"
                 continue
 
+            best = (parsed, candidate)
+
+        if best:
             return ParseResult(
                 success=True,
-                action=parsed,
-                raw_json=candidate,
+                action=best[0],
+                raw_json=best[1],
                 error=None,
                 injection_detected=injection,
             )

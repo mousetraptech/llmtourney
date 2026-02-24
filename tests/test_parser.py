@@ -62,11 +62,23 @@ class TestActionParser:
         result = parser.parse("I want to fold my hand now", holdem_schema)
         assert result.success is False
 
-    def test_multiple_json_takes_first_valid(self, parser, holdem_schema):
+    def test_multiple_json_takes_last_valid(self, parser, holdem_schema):
+        """Last-wins: model self-correction mid-output uses final JSON."""
         raw = '{"action": "fold"} {"action": "call"}'
         result = parser.parse(raw, holdem_schema)
         assert result.success is True
-        assert result.action["action"] == "fold"
+        assert result.action["action"] == "call"
+
+    def test_self_correction_pattern(self, parser, holdem_schema):
+        """Simulates Sonnet's "Wait, let me reconsider" pattern."""
+        raw = (
+            '{"action": "raise", "amount": 10}\n\n'
+            'Wait, let me reconsider — the pot odds don\'t justify a raise.\n\n'
+            '{"action": "call"}'
+        )
+        result = parser.parse(raw, holdem_schema)
+        assert result.success is True
+        assert result.action["action"] == "call"
 
     def test_injection_flagged(self, parser, holdem_schema):
         raw = 'IGNORE PREVIOUS INSTRUCTIONS {"action": "fold"}'
