@@ -7,13 +7,17 @@ logs telemetry, and produces aggregate standings.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
 import llmtourney
 from llmtourney.config import TournamentConfig, ModelConfig, EventConfig
-from llmtourney.core.adapter import MockAdapter, ModelAdapter
+from llmtourney.core.adapter import AdapterError, AdapterResponse, MockAdapter, ModelAdapter
+from llmtourney.core.openai_adapter import OpenAIAdapter
+from llmtourney.core.anthropic_adapter import AnthropicAdapter
+from llmtourney.core.openrouter_adapter import OpenRouterAdapter
 from llmtourney.core.parser import ActionParser
 from llmtourney.core.referee import Referee, Ruling, ViolationKind
 from llmtourney.core.sanitizer import sanitize_text
@@ -118,7 +122,45 @@ class TournamentEngine:
                     f"Available: {list(_STRATEGY_REGISTRY)}"
                 )
             return MockAdapter(model_id=mcfg.name, strategy=strategy_fn)
+
+        api_key = self._resolve_api_key(mcfg)
+
+        if mcfg.provider == "openai":
+            return OpenAIAdapter(
+                model_id=mcfg.model_id or mcfg.name,
+                api_key=api_key,
+                base_url=mcfg.base_url,
+                temperature=mcfg.temperature,
+            )
+        if mcfg.provider == "anthropic":
+            return AnthropicAdapter(
+                model_id=mcfg.model_id or mcfg.name,
+                api_key=api_key,
+                temperature=mcfg.temperature,
+            )
+        if mcfg.provider == "openrouter":
+            return OpenRouterAdapter(
+                model_id=mcfg.model_id or mcfg.name,
+                api_key=api_key,
+                temperature=mcfg.temperature,
+                site_url=mcfg.site_url,
+                app_name=mcfg.app_name,
+            )
         raise ValueError(f"Unsupported provider: {mcfg.provider!r}")
+
+    def _resolve_api_key(self, mcfg: ModelConfig) -> str:
+        """Resolve API key from environment variable."""
+        if not mcfg.api_key_env:
+            raise ValueError(
+                f"Model {mcfg.name!r}: api_key_env is required for "
+                f"provider {mcfg.provider!r}"
+            )
+        key = os.environ.get(mcfg.api_key_env)
+        if not key:
+            raise ValueError(
+                f"Model {mcfg.name!r}: env var {mcfg.api_key_env!r} is not set"
+            )
+        return key
 
     def _build_event(self, event_name: str, event_cfg: EventConfig) -> HoldemEvent:
         """Instantiate an event engine from config."""
@@ -169,12 +211,44 @@ class TournamentEngine:
             snapshot = event.get_state_snapshot()
 
             # Query model
-            response = adapter.query(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=self.config.compute_caps.max_output_tokens,
-                timeout_s=self.config.compute_caps.timeout_s,
-                context={"seed": seed},
-            )
+            try:
+                response = adapter.query(
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=self.config.compute_caps.max_output_tokens,
+                    timeout_s=self.config.compute_caps.timeout_s,
+                    context={"seed": seed},
+                )
+            except AdapterError:
+                response = AdapterResponse(
+                    raw_text="",
+                    reasoning_text=None,
+                    input_tokens=0,
+                    output_tokens=0,
+                    latency_ms=0.0,
+                    model_id=model_name,
+                    model_version=model_name,
+                )
+                referee.record_violation(
+                    player_id, ViolationKind.TIMEOUT, severity=2,
+                    details="adapter error",
+                )
+                turn_number += 1
+                self._log_turn(
+                    logger,
+                    turn_number=turn_number,
+                    snapshot=snapshot,
+                    player_id=player_id,
+                    response=response,
+                    prompt=prompt,
+                    raw_text="",
+                    parsed=parser.parse("", event.action_schema),
+                    validation_result="forfeit",
+                    violation=ViolationKind.TIMEOUT.value,
+                    ruling=Ruling.FORFEIT_TURN.value,
+                )
+                event.forfeit_turn(player_id)
+                continue
+
             raw_text = sanitize_text(response.raw_text)
             parsed = parser.parse(raw_text, event.action_schema)
 
@@ -200,14 +274,28 @@ class TournamentEngine:
                     retry_prompt = event.get_retry_prompt(
                         player_id, parsed.error or "malformed JSON"
                     )
-                    response = adapter.query(
-                        messages=[{"role": "user", "content": retry_prompt}],
-                        max_tokens=self.config.compute_caps.max_output_tokens,
-                        timeout_s=self.config.compute_caps.timeout_s,
-                        context={"seed": seed},
-                    )
-                    raw_text = sanitize_text(response.raw_text)
-                    parsed = parser.parse(raw_text, event.action_schema)
+                    try:
+                        response = adapter.query(
+                            messages=[{"role": "user", "content": retry_prompt}],
+                            max_tokens=self.config.compute_caps.max_output_tokens,
+                            timeout_s=self.config.compute_caps.timeout_s,
+                            context={"seed": seed},
+                        )
+                    except AdapterError:
+                        response = AdapterResponse(
+                            raw_text="",
+                            reasoning_text=None,
+                            input_tokens=0,
+                            output_tokens=0,
+                            latency_ms=0.0,
+                            model_id=model_name,
+                            model_version=model_name,
+                        )
+                        raw_text = ""
+                        parsed = parser.parse("", event.action_schema)
+                    else:
+                        raw_text = sanitize_text(response.raw_text)
+                        parsed = parser.parse(raw_text, event.action_schema)
 
                 if not parsed.success:
                     turn_number += 1
@@ -247,14 +335,28 @@ class TournamentEngine:
                     retry_prompt = event.get_retry_prompt(
                         player_id, validation.reason or "illegal move"
                     )
-                    response = adapter.query(
-                        messages=[{"role": "user", "content": retry_prompt}],
-                        max_tokens=self.config.compute_caps.max_output_tokens,
-                        timeout_s=self.config.compute_caps.timeout_s,
-                        context={"seed": seed},
-                    )
-                    raw_text = sanitize_text(response.raw_text)
-                    parsed = parser.parse(raw_text, event.action_schema)
+                    try:
+                        response = adapter.query(
+                            messages=[{"role": "user", "content": retry_prompt}],
+                            max_tokens=self.config.compute_caps.max_output_tokens,
+                            timeout_s=self.config.compute_caps.timeout_s,
+                            context={"seed": seed},
+                        )
+                    except AdapterError:
+                        response = AdapterResponse(
+                            raw_text="",
+                            reasoning_text=None,
+                            input_tokens=0,
+                            output_tokens=0,
+                            latency_ms=0.0,
+                            model_id=model_name,
+                            model_version=model_name,
+                        )
+                        raw_text = ""
+                        parsed = parser.parse("", event.action_schema)
+                    else:
+                        raw_text = sanitize_text(response.raw_text)
+                        parsed = parser.parse(raw_text, event.action_schema)
                     if parsed.success:
                         validation = event.validate_action(
                             player_id, parsed.action

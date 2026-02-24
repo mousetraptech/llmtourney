@@ -11,6 +11,25 @@ models:
     provider: mock
     strategy: simple_heuristic
 
+  # --- Live model examples (uncomment to use) ---
+  # gpt-4o:
+  #   provider: openai
+  #   model_id: gpt-4o
+  #   api_key_env: OPENAI_API_KEY
+  #   temperature: 0.0
+  #
+  # claude-sonnet:
+  #   provider: anthropic
+  #   model_id: claude-sonnet-4-20250514
+  #   api_key_env: ANTHROPIC_API_KEY
+  #   temperature: 0.0
+  #
+  # deepseek-r1:
+  #   provider: openrouter
+  #   model_id: deepseek/deepseek-r1
+  #   api_key_env: OPENROUTER_API_KEY
+  #   temperature: 0.0
+
 events:
   holdem:
     weight: 3
