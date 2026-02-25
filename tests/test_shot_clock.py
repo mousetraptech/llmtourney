@@ -332,6 +332,7 @@ class TestMatchForfeitAward:
             forfeit_escalation=ForfeitEscalationConfig(
                 turn_forfeit_threshold=1,  # immediate forfeit
                 match_forfeit_threshold=3,  # 3 forfeits → match over
+                strike_violations=["timeout", "malformed_json", "empty_response"],
             ),
             games_per_match=9,
         )

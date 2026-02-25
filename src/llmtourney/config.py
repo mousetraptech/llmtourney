@@ -48,7 +48,7 @@ class ForfeitEscalationConfig:
     turn_forfeit_threshold: int = 1  # 1 = no retries
     match_forfeit_threshold: int = 3  # turn forfeits → match forfeit
     strike_violations: list[str] = field(
-        default_factory=lambda: ["timeout", "malformed_json", "empty_response"]
+        default_factory=lambda: ["timeout", "empty_response"]
     )
 
 
