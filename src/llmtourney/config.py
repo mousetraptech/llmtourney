@@ -41,6 +41,7 @@ class TournamentConfig:
     name: str
     seed: int
     version: str
+    format: str = "round_robin"
     models: dict[str, ModelConfig] = field(default_factory=dict)
     events: dict[str, EventConfig] = field(default_factory=dict)
     compute_caps: ComputeCaps = field(default_factory=ComputeCaps)
@@ -89,6 +90,7 @@ def load_config(path: Path) -> TournamentConfig:
         name=t["name"],
         seed=t["seed"],
         version=t["version"],
+        format=t.get("format", "round_robin"),
         models=models,
         events=events,
         compute_caps=ComputeCaps(

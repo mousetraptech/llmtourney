@@ -1625,6 +1625,698 @@ setTimeout(() => {
 </html>"""
 
 
+# ── Bracket HTML/CSS/JS ───────────────────────────────────────────
+
+BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bracket Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --amber: #e3b341;
+  --gold: #f0c040;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-complete { background: var(--cyan); color: #000; }
+.badge-pending { background: var(--dim); color: #000; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 18px; font-weight: bold; }
+#header .sub { margin-top: 4px; color: var(--dim); font-size: 12px; }
+
+/* Bracket Tree */
+#bracket-tree {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+#bracket-tree h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 12px;
+  letter-spacing: 1px;
+}
+.bracket-grid {
+  display: flex;
+  gap: 0;
+  align-items: center;
+  min-height: 200px;
+}
+.bracket-round {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  min-width: 200px;
+  position: relative;
+  flex: 1;
+}
+.bracket-round-label {
+  text-align: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+  font-weight: bold;
+}
+.bracket-matchup {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 4px 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+}
+.bracket-matchup:hover {
+  border-color: var(--cyan);
+  background: #1c2333;
+}
+.bracket-matchup.status-complete {
+  border-left: 3px solid var(--green);
+}
+.bracket-matchup.status-in_progress {
+  border-left: 3px solid var(--amber);
+  animation: glowAmber 2s infinite;
+}
+.bracket-matchup.status-pending {
+  border-left: 3px solid var(--dim);
+  opacity: 0.6;
+}
+@keyframes glowAmber {
+  0%,100% { box-shadow: 0 0 4px rgba(227, 179, 65, 0.3); }
+  50% { box-shadow: 0 0 8px rgba(227, 179, 65, 0.5); }
+}
+.matchup-player {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.matchup-player .seed {
+  color: var(--dim);
+  font-size: 10px;
+  margin-right: 4px;
+  min-width: 20px;
+}
+.matchup-player .name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.matchup-player .score {
+  font-weight: bold;
+  margin-left: 8px;
+  min-width: 24px;
+  text-align: right;
+}
+.matchup-player.winner .name { color: var(--green); font-weight: bold; }
+.matchup-player.loser { opacity: 0.5; }
+.matchup-vs {
+  text-align: center;
+  color: var(--dim);
+  font-size: 10px;
+  padding: 1px 0;
+}
+
+/* Connector lines */
+.bracket-connectors {
+  min-width: 24px;
+  flex-shrink: 0;
+}
+
+/* Champion banner */
+#champion-banner {
+  display: none;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  border: 2px solid var(--gold);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+#champion-banner.show { display: block; }
+#champion-banner .trophy { font-size: 32px; }
+#champion-banner .champ-name {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--gold);
+  margin: 4px 0;
+}
+#champion-banner .champ-sub { color: var(--dim); font-size: 12px; }
+
+/* Match Grid */
+#match-grid {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+#match-grid h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 12px;
+  letter-spacing: 1px;
+}
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.match-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.1s;
+}
+.match-card:hover {
+  border-color: var(--cyan);
+  transform: translateY(-1px);
+}
+.match-card.active {
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
+}
+.match-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.match-card .card-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+.card-status.live { background: var(--green); color: #000; }
+.card-status.complete { background: var(--dim); color: #000; }
+.card-status.pending { background: #333; color: var(--dim); }
+.match-card .card-players {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.card-player {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card-player .cp-seed { color: var(--dim); font-size: 10px; margin-right: 4px; }
+.card-player .cp-name { flex: 1; font-size: 12px; }
+.card-player .cp-score { font-weight: bold; font-size: 14px; min-width: 30px; text-align: right; }
+.card-player.cp-winner .cp-name { color: var(--green); }
+.match-card .card-meta {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+/* Detail Panel */
+#detail-panel {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+#detail-panel.show { display: block; }
+#detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+#detail-header h2 {
+  font-size: 14px;
+  color: var(--text);
+}
+#detail-close {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+#detail-close:hover { border-color: var(--red); color: var(--red); }
+#detail-content {
+  max-height: 500px;
+  overflow-y: auto;
+}
+.detail-turn {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.detail-turn:last-child { border-bottom: none; }
+.detail-turn .dt-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.detail-turn .dt-player { font-weight: bold; }
+.detail-turn .dt-player.pa { color: var(--cyan); }
+.detail-turn .dt-player.pb { color: var(--magenta); }
+.detail-turn .dt-meta { color: var(--dim); font-size: 10px; }
+.detail-turn .dt-action { color: var(--text); }
+.detail-turn .dt-reasoning {
+  color: var(--dim);
+  font-size: 11px;
+  margin-top: 2px;
+  font-style: italic;
+  max-height: 60px;
+  overflow: hidden;
+}
+.detail-turn .dt-violation {
+  color: var(--red);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.detail-summary {
+  padding: 12px 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  text-align: center;
+}
+.detail-summary .ds-winner { color: var(--green); font-size: 16px; font-weight: bold; }
+.detail-summary .ds-score { color: var(--dim); margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span class="badge badge-pending" id="status-badge">WAITING</span>
+  <span class="title" id="tourney-title">Bracket Tournament</span>
+  <div class="sub" id="tourney-sub"></div>
+</div>
+
+<div id="champion-banner">
+  <div class="trophy">&#127942;</div>
+  <div class="champ-name" id="champ-name"></div>
+  <div class="champ-sub" id="champ-sub">Tournament Champion</div>
+</div>
+
+<div id="bracket-tree">
+  <h2>Bracket</h2>
+  <div class="bracket-grid" id="bracket-grid"></div>
+</div>
+
+<div id="match-grid">
+  <h2 id="grid-title">Matches</h2>
+  <div class="grid-cards" id="grid-cards"></div>
+</div>
+
+<div id="detail-panel">
+  <div id="detail-header">
+    <h2 id="detail-title">Match Detail</h2>
+    <button id="detail-close" onclick="closeDetail()">Close</button>
+  </div>
+  <div id="detail-content"></div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let manifest = null;
+let detailMatchId = null;
+let detailSSE = null;
+let matchSSEs = {};
+
+// ── Manifest SSE ─────────────────────────────────────────────────
+function startManifestSSE() {
+  const es = new EventSource('/events/manifest');
+  es.onmessage = (e) => {
+    try {
+      manifest = JSON.parse(e.data);
+      renderAll();
+    } catch(err) {}
+  };
+  es.addEventListener('done', () => {
+    es.close();
+  });
+  es.onerror = () => {
+    setTimeout(() => {
+      es.close();
+      startManifestSSE();
+    }, 3000);
+  };
+}
+
+// Also fetch manifest immediately on load
+fetch('/manifest')
+  .then(r => r.json())
+  .then(m => { manifest = m; renderAll(); })
+  .catch(() => {});
+
+startManifestSSE();
+
+// ── Render All ───────────────────────────────────────────────────
+function renderAll() {
+  if (!manifest) return;
+  renderHeader();
+  renderChampion();
+  renderBracket();
+  renderMatchGrid();
+}
+
+// ── Header ───────────────────────────────────────────────────────
+function renderHeader() {
+  const badge = document.getElementById('status-badge');
+  const title = document.getElementById('tourney-title');
+  const sub = document.getElementById('tourney-sub');
+
+  title.textContent = manifest.tournament_name || 'Bracket Tournament';
+  sub.textContent = `${manifest.event || ''} \u2022 ${manifest.num_models || '?'} models \u2022 ${manifest.num_rounds || '?'} rounds`;
+
+  if (manifest.status === 'complete') {
+    badge.className = 'badge badge-complete';
+    badge.textContent = 'COMPLETE';
+  } else {
+    badge.className = 'badge badge-live';
+    badge.textContent = 'LIVE';
+  }
+}
+
+// ── Champion Banner ──────────────────────────────────────────────
+function renderChampion() {
+  const banner = document.getElementById('champion-banner');
+  if (manifest.champion) {
+    banner.classList.add('show');
+    document.getElementById('champ-name').textContent = manifest.champion;
+    const seed = (manifest.seeds || []).find(s => s.model === manifest.champion);
+    document.getElementById('champ-sub').textContent =
+      seed ? `Seed #${seed.seed} \u2022 Tournament Champion` : 'Tournament Champion';
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+// ── Bracket Tree ─────────────────────────────────────────────────
+function renderBracket() {
+  const grid = document.getElementById('bracket-grid');
+  grid.innerHTML = '';
+
+  const rounds = manifest.rounds || [];
+  if (!rounds.length) {
+    grid.innerHTML = '<div style="color:var(--dim);padding:20px;text-align:center;">Waiting for bracket data...</div>';
+    return;
+  }
+
+  // Calculate total rounds (including future ones)
+  const totalRounds = manifest.num_rounds || rounds.length;
+
+  for (let ri = 0; ri < totalRounds; ri++) {
+    if (ri > 0) {
+      // Add connector column
+      const conn = document.createElement('div');
+      conn.className = 'bracket-connectors';
+      grid.appendChild(conn);
+    }
+
+    const roundDiv = document.createElement('div');
+    roundDiv.className = 'bracket-round';
+
+    const rd = rounds[ri];
+    const label = document.createElement('div');
+    label.className = 'bracket-round-label';
+    label.textContent = rd ? rd.label : `Round ${ri + 1}`;
+    roundDiv.appendChild(label);
+
+    if (rd) {
+      for (const m of rd.matches) {
+        roundDiv.appendChild(createMatchupEl(m, rd.status));
+      }
+    } else {
+      // Future round — show TBD slots
+      const numMatches = Math.pow(2, totalRounds - ri - 1) / 2;
+      for (let j = 0; j < Math.max(1, numMatches); j++) {
+        const tbd = document.createElement('div');
+        tbd.className = 'bracket-matchup status-pending';
+        tbd.innerHTML = '<div class="matchup-player"><span class="name" style="color:var(--dim)">TBD</span></div>' +
+          '<div class="matchup-vs">vs</div>' +
+          '<div class="matchup-player"><span class="name" style="color:var(--dim)">TBD</span></div>';
+        roundDiv.appendChild(tbd);
+      }
+    }
+
+    grid.appendChild(roundDiv);
+  }
+}
+
+function createMatchupEl(m, roundStatus) {
+  const el = document.createElement('div');
+  const status = m.winner ? 'complete' : (roundStatus === 'complete' ? 'complete' : 'in_progress');
+  el.className = `bracket-matchup status-${status}`;
+
+  const isAWinner = m.winner === m.model_a;
+  const isBWinner = m.winner === m.model_b;
+  const scoreA = m.scores ? (m.scores.player_a ?? '') : '';
+  const scoreB = m.scores ? (m.scores.player_b ?? '') : '';
+
+  el.innerHTML =
+    `<div class="matchup-player ${isAWinner ? 'winner' : (m.winner ? 'loser' : '')}">` +
+      `<span class="seed">[${m.seed_a}]</span>` +
+      `<span class="name">${m.model_a}</span>` +
+      `<span class="score">${scoreA !== '' ? Math.round(scoreA) : ''}</span>` +
+    `</div>` +
+    `<div class="matchup-vs">vs</div>` +
+    `<div class="matchup-player ${isBWinner ? 'winner' : (m.winner ? 'loser' : '')}">` +
+      `<span class="seed">[${m.seed_b}]</span>` +
+      `<span class="name">${m.model_b}</span>` +
+      `<span class="score">${scoreB !== '' ? Math.round(scoreB) : ''}</span>` +
+    `</div>`;
+
+  if (m.match_id) {
+    el.onclick = () => openDetail(m.match_id, m.model_a, m.model_b);
+  }
+  return el;
+}
+
+// ── Match Grid ───────────────────────────────────────────────────
+function renderMatchGrid() {
+  const container = document.getElementById('grid-cards');
+  const title = document.getElementById('grid-title');
+  container.innerHTML = '';
+
+  const rounds = manifest.rounds || [];
+  if (!rounds.length) return;
+
+  // Show the latest round's matches
+  const latestRound = rounds[rounds.length - 1];
+  title.textContent = `${latestRound.label} Matches`;
+
+  // Also show all rounds in cards
+  for (const rd of rounds) {
+    for (const m of rd.matches) {
+      container.appendChild(createMatchCard(m, rd));
+    }
+  }
+}
+
+function createMatchCard(m, rd) {
+  const card = document.createElement('div');
+  card.className = 'match-card' + (detailMatchId === m.match_id ? ' active' : '');
+
+  const isComplete = !!m.winner;
+  const isAWinner = m.winner === m.model_a;
+  const isBWinner = m.winner === m.model_b;
+  const scoreA = m.scores ? (m.scores.player_a ?? '-') : '-';
+  const scoreB = m.scores ? (m.scores.player_b ?? '-') : '-';
+
+  const statusClass = isComplete ? 'complete' : 'live';
+  const statusText = isComplete ? 'DONE' : 'LIVE';
+
+  card.innerHTML =
+    `<div class="card-header">` +
+      `<span style="color:var(--dim);font-size:11px;">${rd.label}</span>` +
+      `<span class="card-status ${statusClass}">${statusText}</span>` +
+    `</div>` +
+    `<div class="card-players">` +
+      `<div class="card-player ${isAWinner ? 'cp-winner' : ''}">` +
+        `<span class="cp-seed">[${m.seed_a}]</span>` +
+        `<span class="cp-name">${m.model_a}</span>` +
+        `<span class="cp-score">${scoreA !== '-' ? Math.round(scoreA) : '-'}</span>` +
+      `</div>` +
+      `<div class="card-player ${isBWinner ? 'cp-winner' : ''}">` +
+        `<span class="cp-seed">[${m.seed_b}]</span>` +
+        `<span class="cp-name">${m.model_b}</span>` +
+        `<span class="cp-score">${scoreB !== '-' ? Math.round(scoreB) : '-'}</span>` +
+      `</div>` +
+    `</div>` +
+    `<div class="card-meta">${m.match_id || 'pending'}</div>`;
+
+  if (m.match_id) {
+    card.onclick = () => openDetail(m.match_id, m.model_a, m.model_b);
+  }
+  return card;
+}
+
+// ── Detail Panel ─────────────────────────────────────────────────
+function openDetail(matchId, modelA, modelB) {
+  if (detailSSE) { detailSSE.close(); detailSSE = null; }
+  detailMatchId = matchId;
+
+  const panel = document.getElementById('detail-panel');
+  const title = document.getElementById('detail-title');
+  const content = document.getElementById('detail-content');
+
+  panel.classList.add('show');
+  title.textContent = `${modelA} vs ${modelB}`;
+  content.innerHTML = '<div style="color:var(--dim);padding:20px;text-align:center;">Loading match data...</div>';
+
+  // Re-render grid to show active card
+  renderMatchGrid();
+
+  // Open SSE for this match
+  detailSSE = new EventSource(`/events/${matchId}`);
+  let turns = [];
+
+  detailSSE.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      turns.push(data);
+      renderDetail(turns, modelA, modelB);
+    } catch(err) {}
+  };
+  detailSSE.addEventListener('done', () => {
+    detailSSE.close();
+    detailSSE = null;
+  });
+  detailSSE.onerror = () => {
+    // Silently handle — match file may not exist yet
+  };
+
+  // Scroll to detail
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeDetail() {
+  if (detailSSE) { detailSSE.close(); detailSSE = null; }
+  detailMatchId = null;
+  document.getElementById('detail-panel').classList.remove('show');
+  renderMatchGrid();
+}
+
+function renderDetail(turns, modelA, modelB) {
+  const content = document.getElementById('detail-content');
+  let html = '';
+
+  for (const t of turns) {
+    if (t.record_type === 'match_summary') {
+      const scores = t.scores || {};
+      const winner = (scores.player_a || 0) > (scores.player_b || 0) ? modelA : modelB;
+      html += `<div class="detail-summary">` +
+        `<div class="ds-winner">${winner} wins</div>` +
+        `<div class="ds-score">${Math.round(scores.player_a || 0)} - ${Math.round(scores.player_b || 0)}</div>` +
+        `</div>`;
+      continue;
+    }
+
+    const pid = t.player_id || '';
+    const pclass = pid === 'player_a' ? 'pa' : 'pb';
+    const pname = pid === 'player_a' ? modelA : modelB;
+    const action = t.parsed_action ? JSON.stringify(t.parsed_action) : '';
+    const reasoning = t.reasoning_output || (t.parsed_action && t.parsed_action.reasoning) || '';
+    const violation = t.violation || '';
+    const turnNum = t.turn_number || '';
+    const handNum = t.hand_number || t.state_snapshot && t.state_snapshot.game_number || '';
+
+    html += `<div class="detail-turn">` +
+      `<div class="dt-header">` +
+        `<span class="dt-player ${pclass}">${pname}</span>` +
+        `<span class="dt-meta">Turn ${turnNum}${handNum ? ' / Game ' + handNum : ''}</span>` +
+      `</div>`;
+
+    if (action) {
+      // Clean up action display — remove reasoning from JSON display
+      let displayAction = action;
+      try {
+        const parsed = JSON.parse(action);
+        delete parsed.reasoning;
+        displayAction = JSON.stringify(parsed);
+      } catch(e) {}
+      html += `<div class="dt-action">${escapeHtml(displayAction)}</div>`;
+    }
+    if (reasoning) {
+      html += `<div class="dt-reasoning">${escapeHtml(reasoning.substring(0, 200))}${reasoning.length > 200 ? '...' : ''}</div>`;
+    }
+    if (violation) {
+      html += `<div class="dt-violation">${violation}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  content.innerHTML = html || '<div style="color:var(--dim);padding:20px;text-align:center;">No turns yet...</div>';
+  // Auto-scroll to bottom
+  content.scrollTop = content.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>"""
+
+
 # ── HTTP Handler ──────────────────────────────────────────────────
 
 class SpectatorHandler(BaseHTTPRequestHandler):
@@ -1641,6 +2333,8 @@ class SpectatorHandler(BaseHTTPRequestHandler):
             self._serve_sse()
         elif self.path == '/runlog':
             self._serve_runlog()
+        elif self.path == '/filepath':
+            self._serve_filepath()
         else:
             self.send_error(404)
 
@@ -1711,24 +2405,223 @@ class SpectatorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_filepath(self):
+        body = str(self.jsonl_path.resolve()).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+# ── Bracket Spectator Handler ────────────────────────────────────
+
+class BracketSpectatorHandler(BaseHTTPRequestHandler):
+    """Handler for bracket tournament multi-view spectator."""
+    manifest_path: Path      # set on class before serving
+    telemetry_dir: Path      # set on class before serving
+    html_page: str = ""      # set on class before serving
+    _last_mtime: float = 0   # track manifest changes
+
+    def log_message(self, format, *args):
+        pass
+
+    def do_GET(self):
+        if self.path == '/':
+            self._serve_html()
+        elif self.path == '/manifest':
+            self._serve_manifest()
+        elif self.path == '/events/manifest':
+            self._serve_manifest_sse()
+        elif self.path.startswith('/events/'):
+            match_id = self.path[len('/events/'):]
+            self._serve_match_sse(match_id)
+        else:
+            self.send_error(404)
+
+    def _serve_html(self):
+        body = self.html_page.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_manifest(self):
+        try:
+            body = self.manifest_path.read_bytes()
+        except FileNotFoundError:
+            body = b'{}'
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_manifest_sse(self):
+        """SSE stream that emits when manifest file mtime changes."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+
+        last_mtime = 0.0
+        try:
+            while True:
+                try:
+                    mtime = self.manifest_path.stat().st_mtime
+                except FileNotFoundError:
+                    time.sleep(1)
+                    continue
+
+                if mtime > last_mtime:
+                    last_mtime = mtime
+                    try:
+                        data = self.manifest_path.read_text()
+                    except FileNotFoundError:
+                        continue
+                    self.wfile.write(f"data: {data}\n\n".encode())
+                    self.wfile.flush()
+
+                    # Check if tournament complete
+                    try:
+                        manifest = json.loads(data)
+                        if manifest.get("status") == "complete":
+                            self.wfile.write(b"event: done\ndata: complete\n\n")
+                            self.wfile.flush()
+                            break
+                    except json.JSONDecodeError:
+                        pass
+
+                time.sleep(1)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _serve_match_sse(self, match_id: str):
+        """SSE stream that tail-reads a match's JSONL file."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+
+        jsonl_path = self.telemetry_dir / f"{match_id}.jsonl"
+        pos = 0
+        done = False
+
+        try:
+            while not done:
+                try:
+                    size = jsonl_path.stat().st_size
+                except FileNotFoundError:
+                    time.sleep(0.5)
+                    continue
+
+                if size > pos:
+                    with open(jsonl_path, 'r') as f:
+                        f.seek(pos)
+                        while True:
+                            raw_line = f.readline()
+                            if not raw_line:
+                                break
+                            raw_line = raw_line.strip()
+                            if not raw_line:
+                                continue
+                            try:
+                                data = json.loads(raw_line)
+                            except json.JSONDecodeError:
+                                continue
+                            self.wfile.write(f"data: {raw_line}\n\n".encode())
+                            self.wfile.flush()
+                            if data.get('record_type') == 'match_summary':
+                                self.wfile.write(b"event: done\ndata: end\n\n")
+                                self.wfile.flush()
+                                done = True
+                                break
+                        pos = f.tell()
+
+                if not done:
+                    time.sleep(0.5)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
 
 # ── Main ──────────────────────────────────────────────────────────
 
+def resolve_bracket_manifest(arg: str) -> Path:
+    """Resolve a bracket manifest path from a name or path."""
+    p = Path(arg)
+    if p.exists():
+        return p
+    # Try as bracket name in telemetry dir
+    p = TELEMETRY_DIR / f"bracket-{arg}.json"
+    if p.exists():
+        return p
+    p = TELEMETRY_DIR / f"{arg}.json"
+    if p.exists():
+        return p
+    print(f"Cannot find bracket manifest: {arg}")
+    sys.exit(1)
+
+
 def main():
-    arg = sys.argv[1] if len(sys.argv) > 1 else None
-    jsonl_path = resolve_jsonl_path(arg)
-    event_type = detect_event_type(jsonl_path)
+    import argparse
 
-    SpectatorHandler.jsonl_path = jsonl_path
-    SpectatorHandler.html_page = TTT_HTML_PAGE if event_type == "tictactoe" else HTML_PAGE
+    parser = argparse.ArgumentParser(
+        description="Web spectator for LLM tournament matches",
+    )
+    parser.add_argument(
+        "match",
+        nargs="?",
+        default=None,
+        help="JSONL file or match ID to spectate (default: latest)",
+    )
+    parser.add_argument(
+        "--bracket",
+        type=str,
+        default=None,
+        help="Bracket tournament name or manifest path",
+    )
+    parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=PORT,
+        help=f"Port to serve on (default: {PORT})",
+    )
+    args = parser.parse_args()
 
-    label = {"tictactoe": "Tic-Tac-Toe", "scrabble": "Scrabble"}.get(event_type, event_type)
-    print(f"{label} Web Spectator")
-    print(f"  File: {jsonl_path}")
-    print(f"  URL:  http://127.0.0.1:{PORT}")
-    print()
+    if args.bracket:
+        # Bracket spectator mode
+        manifest_path = resolve_bracket_manifest(args.bracket)
+        BracketSpectatorHandler.manifest_path = manifest_path
+        BracketSpectatorHandler.telemetry_dir = manifest_path.parent
+        BracketSpectatorHandler.html_page = BRACKET_HTML_PAGE
 
-    server = ThreadingHTTPServer(('127.0.0.1', PORT), SpectatorHandler)
+        print(f"Bracket Spectator")
+        print(f"  Manifest: {manifest_path}")
+        print(f"  URL:      http://127.0.0.1:{args.port}")
+        print()
+
+        server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
+    else:
+        # Single-match spectator mode
+        jsonl_path = resolve_jsonl_path(args.match)
+        event_type = detect_event_type(jsonl_path)
+
+        SpectatorHandler.jsonl_path = jsonl_path
+        SpectatorHandler.html_page = TTT_HTML_PAGE if event_type == "tictactoe" else HTML_PAGE
+
+        label = {"tictactoe": "Tic-Tac-Toe", "scrabble": "Scrabble"}.get(event_type, event_type)
+        print(f"{label} Web Spectator")
+        print(f"  File: {jsonl_path}")
+        print(f"  URL:  http://127.0.0.1:{args.port}")
+        print()
+
+        server = ThreadingHTTPServer(('127.0.0.1', args.port), SpectatorHandler)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

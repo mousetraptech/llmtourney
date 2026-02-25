@@ -1,7 +1,6 @@
 """CLI entry point: python -m llmtourney <config.yaml>"""
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -9,37 +8,8 @@ from llmtourney.config import load_config
 from llmtourney.tournament import TournamentEngine
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="llmtourney",
-        description="LLM Tournament of Champions",
-    )
-    parser.add_argument(
-        "config",
-        type=Path,
-        help="Path to tournament YAML config file",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        type=Path,
-        default=None,
-        help="Output directory (default: output/runs/)",
-    )
-    args = parser.parse_args()
-
-    if not args.config.exists():
-        print(f"Error: config file not found: {args.config}", file=sys.stderr)
-        sys.exit(1)
-
-    config = load_config(args.config)
-    if args.output:
-        config.output_dir = args.output
-
-    print(f"Tournament: {config.name} (seed={config.seed})")
-    print(f"Models: {', '.join(config.models)}")
-    print(f"Events: {', '.join(config.events)}")
-    print()
-
+def _run_round_robin(config) -> None:
+    """Run a round-robin tournament."""
     engine = TournamentEngine(config)
     result = engine.run()
 
@@ -73,6 +43,57 @@ def main() -> None:
         print(f"  {rank}. {model:20s} {score:>8.0f}")
     print()
     print(f"Telemetry: {result.telemetry_dir}")
+
+
+def _run_bracket(config) -> None:
+    """Run a single-elimination bracket tournament."""
+    from llmtourney.bracket import BracketRunner
+
+    runner = BracketRunner(config)
+    manifest = runner.run()
+
+    runner.print_bracket()
+
+    print()
+    print(f"Telemetry: {runner.engine.telemetry_dir}")
+    print(f"Manifest:  {runner.manifest_path}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="llmtourney",
+        description="LLM Tournament of Champions",
+    )
+    parser.add_argument(
+        "config",
+        type=Path,
+        help="Path to tournament YAML config file",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=None,
+        help="Output directory (default: output/runs/)",
+    )
+    args = parser.parse_args()
+
+    if not args.config.exists():
+        print(f"Error: config file not found: {args.config}", file=sys.stderr)
+        sys.exit(1)
+
+    config = load_config(args.config)
+    if args.output:
+        config.output_dir = args.output
+
+    print(f"Tournament: {config.name} (seed={config.seed}, format={config.format})")
+    print(f"Models: {', '.join(config.models)}")
+    print(f"Events: {', '.join(config.events)}")
+    print()
+
+    if config.format == "bracket":
+        _run_bracket(config)
+    else:
+        _run_round_robin(config)
 
 
 if __name__ == "__main__":
