@@ -28,6 +28,7 @@ class EventConfig:
     starting_stack: int = 200
     blinds: tuple[int, int] = (1, 2)
     rounds: int = 1
+    games_per_match: int = 9
 
 
 @dataclass
@@ -84,6 +85,7 @@ def load_config(path: Path) -> TournamentConfig:
             starting_stack=e.get("starting_stack", 200),
             blinds=blinds,
             rounds=e.get("rounds", 1),
+            games_per_match=e.get("games_per_match", 9),
         )
 
     return TournamentConfig(

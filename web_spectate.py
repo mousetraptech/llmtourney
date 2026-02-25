@@ -44,7 +44,7 @@ def resolve_jsonl_path(arg: str | None) -> Path:
     if p.exists():
         return p
     # Try with event prefixes
-    for prefix in ("scrabble-", "tictactoe-"):
+    for prefix in ("scrabble-", "tictactoe-", "checkers-"):
         p = TELEMETRY_DIR / f"{prefix}{arg}.jsonl"
         if p.exists():
             return p
@@ -56,6 +56,8 @@ def detect_event_type(jsonl_path: Path) -> str:
     stem = jsonl_path.stem
     if stem.startswith("tictactoe"):
         return "tictactoe"
+    if stem.startswith("checkers"):
+        return "checkers"
     if stem.startswith("scrabble"):
         return "scrabble"
     # Fallback: peek at first line
@@ -64,6 +66,8 @@ def detect_event_type(jsonl_path: Path) -> str:
             first = f.readline()
             if '"tictactoe"' in first:
                 return "tictactoe"
+            if '"checkers"' in first:
+                return "checkers"
     except Exception:
         pass
     return "scrabble"
@@ -317,7 +321,7 @@ body {
     Waiting for data...
   </div>
   <button id="copy-btn" onclick="copyRunlog()">
-    Copy Runlog <span class="count" id="line-count">0</span>
+    Copy Runlog Path <span class="count" id="line-count">0</span>
   </button>
 </div>
 
@@ -739,33 +743,34 @@ function renderAll() {
 
 // ── Copy runlog ──────────────────────────────────────────────────
 function copyRunlog() {
-  const text = rawLines.join('\n');
   const btn = document.getElementById('copy-btn');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
+  fetch('/filepath').then(r => r.text()).then(function(fp) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(fp).then(function() {
+        btn.classList.add('copied');
+        btn.textContent = 'Copied path!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
+        }, 2000);
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = fp;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
       btn.classList.add('copied');
-      btn.textContent = 'Copied!';
-      setTimeout(() => {
+      btn.textContent = 'Copied path!';
+      setTimeout(function() {
         btn.classList.remove('copied');
-        btn.innerHTML = 'Copy Runlog <span class="count">' + rawLines.length + '</span>';
+        btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
       }, 2000);
-    });
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    btn.classList.add('copied');
-    btn.textContent = 'Copied!';
-    setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.innerHTML = 'Copy Runlog <span class="count">' + rawLines.length + '</span>';
-    }, 2000);
-  }
+    }
+  });
 }
 
 // ── SSE client ───────────────────────────────────────────────────
@@ -813,6 +818,825 @@ turnQueue = [];
 startSSE();
 
 setTimeout(() => {
+  if (turnQueue.length > 0) {
+    drainQueue();
+  } else {
+    isReplaying = false;
+  }
+}, 300);
+</script>
+</body>
+</html>"""
+
+
+# ── Checkers HTML/CSS/JS ──────────────────────────────────────────
+
+CHECKERS_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkers Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --light-sq: #b58863;
+  --dark-sq: #6d4c2a;
+  --black-piece: #1a1a2e;
+  --red-piece: #c0392b;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 16px; font-weight: bold; }
+.player-a { color: var(--cyan); }
+.player-b { color: var(--magenta); }
+#header .sub { margin-top: 4px; color: var(--dim); }
+
+/* Board + Sidebar layout */
+#board-area {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+#board-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  flex-shrink: 0;
+}
+#board-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#col-labels {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  width: 400px;
+  margin-bottom: 2px;
+  margin-left: 20px;
+}
+#col-labels span {
+  text-align: center;
+  font-size: 10px;
+  color: var(--dim);
+}
+#board-with-rows {
+  display: flex;
+}
+#row-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  margin-right: 2px;
+  width: 18px;
+}
+#row-labels span {
+  font-size: 10px;
+  color: var(--dim);
+  text-align: center;
+  height: 50px;
+  line-height: 50px;
+}
+#board {
+  display: grid;
+  grid-template-columns: repeat(8, 50px);
+  grid-template-rows: repeat(8, 50px);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+}
+.sq {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.sq-light { background: var(--light-sq); }
+.sq-dark { background: var(--dark-sq); }
+.sq.last-from, .sq.last-to { box-shadow: inset 0 0 0 3px var(--yellow); }
+.sq.captured-sq { animation: captureFade 0.5s ease-out; }
+
+/* Pieces */
+.piece {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 900;
+  border: 3px solid rgba(255,255,255,0.3);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+.piece-b, .piece-B { background: var(--black-piece); color: #aaa; border-color: #555; }
+.piece-r, .piece-R { background: var(--red-piece); color: #fdd; border-color: #e88; }
+.piece-B::after, .piece-R::after {
+  content: '\u265A';
+  font-size: 18px;
+}
+.piece.fresh { animation: pop 0.3s ease-out; }
+@keyframes pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  70% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes captureFade {
+  0% { background: var(--red); }
+  100% { background: var(--dark-sq); }
+}
+
+/* Sidebar */
+#sidebar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  flex: 1;
+  min-width: 220px;
+}
+#sidebar h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+.score-row { margin-bottom: 8px; }
+.score-row .name { font-weight: bold; font-size: 12px; }
+.score-bar {
+  height: 10px;
+  border-radius: 3px;
+  margin-top: 2px;
+  transition: width 0.5s ease;
+}
+.stat-line { color: var(--dim); font-size: 11px; margin: 3px 0; }
+.stat-line.violations { color: var(--red); }
+.game-assignment { font-size: 11px; margin: 2px 0; }
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* Game history */
+.game-entry {
+  padding: 3px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.game-entry .gnum { color: var(--dim); min-width: 50px; }
+.game-entry .result-win { font-weight: bold; }
+.game-entry .result-draw { color: var(--yellow); font-weight: bold; }
+
+/* Commentary */
+.comment-entry { padding: 2px 0; font-size: 11px; }
+.comment-entry .reasoning { color: var(--dim); font-style: italic; margin-left: 24px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Footer */
+#footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+#footer .status { font-size: 12px; }
+#copy-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+#copy-btn:hover { background: #1f2937; }
+#copy-btn .count { background: var(--border); padding: 1px 6px; border-radius: 8px; margin-left: 6px; font-size: 10px; }
+#copy-btn.copied { background: var(--green); color: #000; border-color: var(--green); }
+
+/* Final panel */
+#final-panel {
+  display: none;
+  text-align: center;
+  padding: 20px;
+  border-color: var(--red);
+}
+#final-panel.show { display: block; }
+#final-panel .winner { font-size: 20px; font-weight: bold; }
+#final-panel .breakdown { font-size: 14px; margin-top: 6px; }
+#final-panel .stats { color: var(--dim); margin-top: 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span class="badge badge-live" id="badge">LIVE</span>
+  <span class="title">CHECKERS</span>
+  <span id="matchup"></span>
+  <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="board-area">
+  <div id="board-panel">
+    <div id="board-wrap">
+      <div id="col-labels"></div>
+      <div id="board-with-rows">
+        <div id="row-labels"></div>
+        <div id="board"></div>
+      </div>
+    </div>
+  </div>
+  <div id="sidebar">
+    <h3>Series Score</h3>
+    <div id="scores"></div>
+    <h3 style="margin-top:12px">Current Game</h3>
+    <div id="game-info"></div>
+    <div id="sidebar-stats"></div>
+  </div>
+</div>
+
+<div class="panel" id="final-panel">
+  <h3>Final Result</h3>
+  <div id="final-content"></div>
+</div>
+
+<div class="panel">
+  <h3>Game History</h3>
+  <div id="game-history"><span style="color:var(--dim);font-style:italic">No completed games</span></div>
+</div>
+
+<div class="panel">
+  <h3>Play-by-Play</h3>
+  <div id="commentary"><span style="color:var(--dim);font-style:italic">Waiting for action...</span></div>
+</div>
+
+<div id="footer">
+  <div class="status" id="status-text">
+    <span class="badge badge-live" style="font-size:10px">LIVE</span>
+    Waiting for data...
+  </div>
+  <button id="copy-btn" onclick="copyRunlog()">
+    Copy Runlog Path <span class="count" id="line-count">0</span>
+  </button>
+</div>
+
+<script>
+// ── Emoji system ─────────────────────────────────────────────────
+const EMOJI_POOL = [
+  '\u{1F525}','\u{1F9E0}','\u{1F47E}','\u{1F916}','\u{1F3AF}',
+  '\u{1F680}','\u{1F40D}','\u{1F98A}','\u{1F43B}','\u{1F985}',
+  '\u{1F409}','\u{1F3B2}','\u{1F9CA}','\u{1F30B}','\u{1F308}',
+  '\u{1F52E}','\u{1F9F2}','\u{1F41D}','\u{1F95D}','\u{1F344}'
+];
+function djb2(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+function pickEmojis(a, b) {
+  let ia = djb2(a) % EMOJI_POOL.length;
+  let ib = djb2(b) % EMOJI_POOL.length;
+  if (ib === ia) ib = (ia + 1) % EMOJI_POOL.length;
+  return { player_a: EMOJI_POOL[ia], player_b: EMOJI_POOL[ib] };
+}
+
+// ── Match state ──────────────────────────────────────────────────
+const S = {
+  matchId: '', modelA: '', modelB: '',
+  board: null,
+  previousBoard: null,
+  seriesScores: { player_a: 0, player_b: 0 },
+  gameNumber: 0,
+  gameTurn: 0,
+  turnCount: 0,
+  colorMap: {},
+  lastMove: null,
+  gameHistory: [],
+  commentary: [],
+  violations: { player_a: 0, player_b: 0 },
+  piecesRemaining: { black: 12, red: 12 },
+  movesWithoutCapture: 0,
+  finished: false,
+  finalScores: {},
+  highlightHands: [],
+  emojis: { player_a: '', player_b: '' }
+};
+
+function emptyBoard() {
+  return Array.from({length:8}, () => Array(8).fill(''));
+}
+S.board = emptyBoard();
+S.previousBoard = emptyBoard();
+
+const rawLines = [];
+let turnQueue = [];
+let isReplaying = false;
+
+function shortModel(name) {
+  if (!name) return name;
+  return name.replace(/^anthropic\/claude-/, '').replace(/^anthropic\//, '').replace(/^openai\//, '');
+}
+
+function assignEmojis() {
+  if (S.modelA && S.modelB && !S.emojis.player_a) {
+    S.emojis = pickEmojis(S.modelA, S.modelB);
+  }
+}
+
+function truncateReasoning(text, max) {
+  max = max || 120;
+  if (!text) return null;
+  const lines = text.trim().split('\n');
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.length > 10) return t.length > max ? t.slice(0, max-3) + '...' : t;
+  }
+  return null;
+}
+
+// ── State machine ────────────────────────────────────────────────
+function processTurn(data) {
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    S.highlightHands = data.highlight_hands || [];
+    const pm = data.player_models || {};
+    if (pm.player_a) S.modelA = shortModel(pm.player_a);
+    if (pm.player_b) S.modelB = shortModel(pm.player_b);
+    assignEmojis();
+    return;
+  }
+
+  S.turnCount++;
+  const snap = data.state_snapshot || {};
+  const playerId = data.player_id || '';
+  const modelId = data.model_id || '';
+
+  if (!S.matchId) S.matchId = data.match_id || '';
+  if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
+  else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
+  assignEmojis();
+
+  const handNum = snap.hand_number || 1;
+  const gameTurn = snap.game_turn || 0;
+
+  // Detect new game
+  if (handNum !== S.gameNumber) {
+    if (S.gameNumber > 0 && snap.result) {
+      const already = S.gameHistory.find(g => g.gameNum === S.gameNumber);
+      if (!already) {
+        S.gameHistory.push({
+          gameNum: S.gameNumber,
+          result: snap.result,
+          colorMap: {...S.colorMap}
+        });
+      }
+    }
+    S.gameNumber = handNum;
+    S.lastMove = null;
+    S.previousBoard = emptyBoard();
+  }
+
+  S.gameTurn = gameTurn;
+
+  // Update color map
+  if (snap.color_map) S.colorMap = {...snap.color_map};
+
+  // Update board
+  if (snap.board) {
+    S.previousBoard = S.board.map(r => [...r]);
+    S.board = snap.board.map(r => [...r]);
+  }
+
+  // Series scores
+  if (snap.series_scores) S.seriesScores = {...snap.series_scores};
+
+  // Last move
+  S.lastMove = snap.last_move || null;
+
+  // Pieces remaining
+  if (snap.pieces_remaining) S.piecesRemaining = {...snap.pieces_remaining};
+
+  // Draw counter
+  if (snap.moves_without_capture !== undefined) S.movesWithoutCapture = snap.moves_without_capture;
+
+  // Violations
+  const violation = data.violation;
+  if (violation) S.violations[playerId] = (S.violations[playerId] || 0) + 1;
+
+  // Terminal — record final game result
+  if (snap.terminal && snap.result) {
+    const already = S.gameHistory.find(g => g.gameNum === S.gameNumber);
+    if (!already) {
+      S.gameHistory.push({
+        gameNum: S.gameNumber,
+        result: snap.result,
+        colorMap: {...S.colorMap}
+      });
+    }
+  }
+
+  // Commentary
+  const reasoning = truncateReasoning(data.reasoning_output);
+  const lm = snap.last_move;
+  if (gameTurn > 0) {
+    let moveStr = '';
+    if (lm) {
+      moveStr = '[' + lm.from[0] + ',' + lm.from[1] + ']\u2192[' + lm.to[0] + ',' + lm.to[1] + ']';
+      if (lm.captures && lm.captures.length) moveStr += ' (x' + lm.captures.length + ')';
+    }
+    S.commentary.push({
+      turnNumber: S.turnCount,
+      gameNumber: S.gameNumber,
+      model: modelId,
+      playerId,
+      moveStr,
+      reasoning,
+      latencyMs: data.latency_ms || 0,
+      isViolation: !!violation
+    });
+    if (S.commentary.length > 16) S.commentary.shift();
+  }
+}
+
+// ── Rendering ────────────────────────────────────────────────────
+function renderBoard() {
+  const el = document.getElementById('board');
+  el.innerHTML = '';
+
+  const lastFrom = S.lastMove ? S.lastMove.from : null;
+  const lastTo = S.lastMove ? S.lastMove.to : null;
+  const capturedSet = new Set();
+  if (S.lastMove && S.lastMove.captures) {
+    S.lastMove.captures.forEach(c => capturedSet.add(c[0]+','+c[1]));
+  }
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const div = document.createElement('div');
+      const isDark = (r + c) % 2 === 1;
+      div.className = 'sq ' + (isDark ? 'sq-dark' : 'sq-light');
+
+      // Last move highlights
+      if (lastFrom && lastFrom[0] === r && lastFrom[1] === c) div.className += ' last-from';
+      if (lastTo && lastTo[0] === r && lastTo[1] === c) div.className += ' last-to';
+      if (capturedSet.has(r+','+c)) div.className += ' captured-sq';
+
+      const piece = S.board[r][c];
+      if (piece) {
+        const pieceEl = document.createElement('div');
+        pieceEl.className = 'piece piece-' + piece;
+        // Fresh animation
+        if (S.previousBoard[r][c] !== piece) pieceEl.className += ' fresh';
+        div.appendChild(pieceEl);
+      }
+
+      el.appendChild(div);
+    }
+  }
+
+  // Col labels
+  const colEl = document.getElementById('col-labels');
+  colEl.innerHTML = '';
+  for (let c = 0; c < 8; c++) {
+    const s = document.createElement('span');
+    s.textContent = c;
+    colEl.appendChild(s);
+  }
+
+  // Row labels
+  const rowEl = document.getElementById('row-labels');
+  rowEl.innerHTML = '';
+  for (let r = 0; r < 8; r++) {
+    const s = document.createElement('span');
+    s.textContent = r;
+    rowEl.appendChild(s);
+  }
+}
+
+function renderHeader() {
+  const badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  const ea = S.emojis.player_a || '';
+  const eb = S.emojis.player_b || '';
+  document.getElementById('matchup').innerHTML =
+    '<span class="player-a">' + ea + ' ' + (S.modelA || '???') + '</span>' +
+    ' <span style="color:var(--dim)">vs</span> ' +
+    '<span class="player-b">' + eb + ' ' + (S.modelB || '???') + '</span>';
+
+  const sa = S.finished ? (S.finalScores.player_a ?? S.seriesScores.player_a) : S.seriesScores.player_a;
+  const sb = S.finished ? (S.finalScores.player_b ?? S.seriesScores.player_b) : S.seriesScores.player_b;
+  document.getElementById('sub-info').innerHTML =
+    '<strong>Game ' + S.gameNumber + '</strong>' +
+    ' <span style="color:var(--dim)">|</span> ' +
+    '<span class="player-a" style="font-weight:bold">' + sa + '</span>' +
+    ' <span style="color:var(--dim)">\u2013</span> ' +
+    '<span class="player-b" style="font-weight:bold">' + sb + '</span>' +
+    ' <span style="color:var(--dim)">|</span> ' +
+    '<span style="color:var(--dim)">Move ' + S.gameTurn + '</span>';
+}
+
+function renderSidebar() {
+  const sa = S.finished ? (S.finalScores.player_a ?? S.seriesScores.player_a) : S.seriesScores.player_a;
+  const sb = S.finished ? (S.finalScores.player_b ?? S.seriesScores.player_b) : S.seriesScores.player_b;
+  const maxScore = Math.max(sa, sb, 1);
+
+  const ea = S.emojis.player_a || '';
+  const eb = S.emojis.player_b || '';
+  const nameA = (S.modelA || 'Player A').slice(0, 18);
+  const nameB = (S.modelB || 'Player B').slice(0, 18);
+  const pctA = Math.max(0, Math.min(100, (sa / maxScore) * 100));
+  const pctB = Math.max(0, Math.min(100, (sb / maxScore) * 100));
+
+  document.getElementById('scores').innerHTML =
+    '<div class="score-row">' +
+    '  <div class="name player-a">' + ea + ' ' + nameA + '</div>' +
+    '  <div class="score-bar" style="width:' + pctA + '%;background:var(--cyan)">&nbsp;</div>' +
+    '  <div style="color:var(--cyan);font-weight:bold">' + sa + '</div>' +
+    '</div>' +
+    '<div class="score-row">' +
+    '  <div class="name player-b">' + eb + ' ' + nameB + '</div>' +
+    '  <div class="score-bar" style="width:' + pctB + '%;background:var(--magenta)">&nbsp;</div>' +
+    '  <div style="color:var(--magenta);font-weight:bold">' + sb + '</div>' +
+    '</div>';
+
+  // Color assignments
+  let gameInfo = '';
+  if (S.gameNumber > 0) {
+    const blackPid = Object.entries(S.colorMap).find(([k,v]) => v === 'black');
+    const redPid = Object.entries(S.colorMap).find(([k,v]) => v === 'red');
+    const blackName = blackPid ? (blackPid[0] === 'player_a' ? nameA : nameB) : '?';
+    const redName = redPid ? (redPid[0] === 'player_a' ? nameA : nameB) : '?';
+    const blackColor = blackPid && blackPid[0] === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
+    const redColor = redPid && redPid[0] === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
+
+    gameInfo =
+      '<div class="game-assignment">' +
+      '<span style="color:#555;font-weight:bold">\u25CF Black</span> = <span style="color:' + blackColor + '">' + blackName + '</span></div>' +
+      '<div class="game-assignment">' +
+      '<span style="color:var(--red);font-weight:bold">\u25CF Red</span> = <span style="color:' + redColor + '">' + redName + '</span></div>' +
+      '<div class="stat-line" style="margin-top:8px">Pieces: Black ' + S.piecesRemaining.black + ' / Red ' + S.piecesRemaining.red + '</div>' +
+      '<div class="stat-line">Moves w/o capture: ' + S.movesWithoutCapture + ' / 40</div>' +
+      '<div class="stat-line">Game ' + S.gameNumber + ', move ' + S.gameTurn + '</div>';
+  }
+  document.getElementById('game-info').innerHTML = gameInfo;
+
+  // Violations
+  let stats = '';
+  const va = S.violations.player_a || 0;
+  const vb = S.violations.player_b || 0;
+  if (va + vb > 0) stats += '<div class="stat-line violations" style="margin-top:8px">Violations: A:' + va + ' B:' + vb + '</div>';
+  document.getElementById('sidebar-stats').innerHTML = stats;
+}
+
+function renderGameHistory() {
+  const el = document.getElementById('game-history');
+  if (!S.gameHistory.length) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No completed games</span>';
+    return;
+  }
+  const nameA = S.modelA || 'Player A';
+  const nameB = S.modelB || 'Player B';
+  el.innerHTML = S.gameHistory.map(function(g) {
+    let resultHTML;
+    if (g.result === 'black_wins') {
+      const cm = g.colorMap || {};
+      const winPid = Object.entries(cm).find(([k,v]) => v === 'black');
+      const pid = winPid ? winPid[0] : 'player_a';
+      const winName = pid === 'player_a' ? nameA : nameB;
+      const color = pid === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
+      resultHTML = '<span class="result-win" style="color:' + color + '">Black wins</span> <span style="color:var(--dim)">(' + winName + ')</span>';
+    } else if (g.result === 'red_wins') {
+      const cm = g.colorMap || {};
+      const winPid = Object.entries(cm).find(([k,v]) => v === 'red');
+      const pid = winPid ? winPid[0] : 'player_b';
+      const winName = pid === 'player_a' ? nameA : nameB;
+      const color = pid === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
+      resultHTML = '<span class="result-win" style="color:' + color + '">Red wins</span> <span style="color:var(--dim)">(' + winName + ')</span>';
+    } else {
+      resultHTML = '<span class="result-draw">Draw</span>';
+    }
+    const hl = S.highlightHands.includes(g.gameNum) ? '<span style="color:var(--yellow)">\u2605 </span>' : '  ';
+    return '<div class="game-entry">' + hl + '<span class="gnum">Game ' + g.gameNum + '</span>' + resultHTML + '</div>';
+  }).join('');
+}
+
+function renderCommentary() {
+  const el = document.getElementById('commentary');
+  if (!S.commentary.length) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting for action...</span>';
+    return;
+  }
+  el.innerHTML = S.commentary.slice().reverse().map(function(e) {
+    const color = e.playerId === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
+    let actionHTML;
+    if (e.isViolation) {
+      actionHTML = '<span style="color:var(--red);font-weight:bold">violation!</span>';
+    } else if (e.moveStr) {
+      actionHTML = '<span style="color:var(--green)">' + e.moveStr + '</span>';
+    } else {
+      actionHTML = '<span style="color:var(--dim)">...</span>';
+    }
+    const latency = e.latencyMs > 100 ? ' <span style="color:var(--dim)">(' + (e.latencyMs/1000).toFixed(1) + 's)</span>' : '';
+    const reason = e.reasoning ? '<span class="reasoning">"' + e.reasoning + '"</span>' : '';
+    return '<div class="comment-entry"><span style="color:var(--dim)">G' + e.gameNumber + ' T' + e.turnNumber + '</span> <span style="color:' + color + ';font-weight:bold">' + e.model + '</span> ' + actionHTML + latency + reason + '</div>';
+  }).join('');
+}
+
+function renderFinal() {
+  if (!S.finished) { document.getElementById('final-panel').className = 'panel'; return; }
+  document.getElementById('final-panel').className = 'panel show';
+  const sa = S.finalScores.player_a || 0;
+  const sb = S.finalScores.player_b || 0;
+
+  let wA = 0, wB = 0, draws = 0;
+  S.gameHistory.forEach(function(g) {
+    if (g.result === 'draw') { draws++; return; }
+    const cm = g.colorMap || {};
+    const winColor = g.result === 'black_wins' ? 'black' : 'red';
+    const winPid = Object.entries(cm).find(([k,v]) => v === winColor);
+    const pid = winPid ? winPid[0] : 'player_a';
+    if (pid === 'player_a') wA++;
+    else wB++;
+  });
+
+  let html;
+  if (sa === sb) {
+    html = '<div class="winner" style="color:var(--yellow)">DRAW</div><div class="breakdown">' + sa + ' each</div>';
+  } else {
+    const wPid = sa > sb ? 'player_a' : 'player_b';
+    const emoji = S.emojis[wPid] || '';
+    const wName = wPid === 'player_a' ? S.modelA : S.modelB;
+    const wColor = wPid === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
+    html = '<div class="winner" style="color:' + wColor + '">' + emoji + ' ' + wName + ' WINS</div>' +
+           '<div class="breakdown">' + sa + ' \u2013 ' + sb + '</div>';
+  }
+  const nameA = S.modelA || 'A';
+  const nameB = S.modelB || 'B';
+  html += '<div class="stats">' + nameA + ': ' + wA + 'W ' + draws + 'D ' + wB + 'L &nbsp;\u00B7&nbsp; ' + nameB + ': ' + wB + 'W ' + draws + 'D ' + wA + 'L</div>';
+  const va = S.violations.player_a || 0, vb = S.violations.player_b || 0;
+  if (va + vb > 0) html += '<div class="stats" style="color:var(--red)">Violations: A:' + va + ' B:' + vb + '</div>';
+  document.getElementById('final-content').innerHTML = html;
+}
+
+function renderFooter() {
+  const st = document.getElementById('status-text');
+  if (S.finished) {
+    st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Series Complete';
+  } else {
+    st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
+  }
+  document.getElementById('line-count').textContent = rawLines.length;
+}
+
+function renderAll() {
+  renderHeader();
+  renderBoard();
+  renderSidebar();
+  renderGameHistory();
+  renderCommentary();
+  renderFinal();
+  renderFooter();
+}
+
+// ── Copy runlog ──────────────────────────────────────────────────
+function copyRunlog() {
+  const btn = document.getElementById('copy-btn');
+  fetch('/filepath').then(function(r) { return r.text(); }).then(function(fp) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(fp).then(function() {
+        btn.classList.add('copied');
+        btn.textContent = 'Copied path!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
+        }, 2000);
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = fp;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.classList.add('copied');
+      btn.textContent = 'Copied path!';
+      setTimeout(function() {
+        btn.classList.remove('copied');
+        btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
+      }, 2000);
+    }
+  });
+}
+
+// ── SSE client ───────────────────────────────────────────────────
+function startSSE() {
+  const es = new EventSource('/events');
+  es.onmessage = function(e) {
+    const line = e.data;
+    rawLines.push(line);
+    try {
+      const data = JSON.parse(line);
+      if (isReplaying) {
+        turnQueue.push(data);
+      } else {
+        processTurn(data);
+        renderAll();
+      }
+    } catch(err) {}
+    document.getElementById('line-count').textContent = rawLines.length;
+  };
+  es.addEventListener('done', function() {
+    es.close();
+  });
+  es.onerror = function() {};
+}
+
+function drainQueue() {
+  if (!turnQueue.length) {
+    isReplaying = false;
+    renderAll();
+    return;
+  }
+  const data = turnQueue.shift();
+  processTurn(data);
+  renderAll();
+  const delay = data.record_type === 'match_summary' ? 200 : 80;
+  setTimeout(drainQueue, delay);
+}
+
+// Init
+renderBoard();
+renderAll();
+
+isReplaying = true;
+turnQueue = [];
+startSSE();
+
+setTimeout(function() {
   if (turnQueue.length > 0) {
     drainQueue();
   } else {
@@ -1109,7 +1933,7 @@ body {
     Waiting for data...
   </div>
   <button id="copy-btn" onclick="copyRunlog()">
-    Copy Runlog <span class="count" id="line-count">0</span>
+    Copy Runlog Path <span class="count" id="line-count">0</span>
   </button>
 </div>
 
@@ -1534,34 +2358,34 @@ function renderAll() {
 
 // ── Copy runlog ──────────────────────────────────────────────────
 function copyRunlog() {
-  const text = rawLines.join('\n');
   const btn = document.getElementById('copy-btn');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
+  fetch('/filepath').then(r => r.text()).then(function(fp) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(fp).then(() => {
+        btn.classList.add('copied');
+        btn.textContent = 'Copied path!';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
+        }, 2000);
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = fp;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
       btn.classList.add('copied');
-      btn.textContent = 'Copied!';
+      btn.textContent = 'Copied path!';
       setTimeout(() => {
         btn.classList.remove('copied');
-        btn.innerHTML = 'Copy Runlog <span class="count">' + rawLines.length + '</span>';
+        btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
       }, 2000);
-    });
-  } else {
-    // Fallback
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    btn.classList.add('copied');
-    btn.textContent = 'Copied!';
-    setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.innerHTML = 'Copy Runlog <span class="count">' + rawLines.length + '</span>';
-    }, 2000);
-  }
+    }
+  });
 }
 
 // ── SSE client ───────────────────────────────────────────────────
@@ -2414,6 +3238,7 @@ class SpectatorHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+
 # ── Bracket Spectator Handler ────────────────────────────────────
 
 class BracketSpectatorHandler(BaseHTTPRequestHandler):
@@ -2548,7 +3373,6 @@ class BracketSpectatorHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-
 # ── Main ──────────────────────────────────────────────────────────
 
 def resolve_bracket_manifest(arg: str) -> Path:
@@ -2612,9 +3436,10 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        SpectatorHandler.html_page = TTT_HTML_PAGE if event_type == "tictactoe" else HTML_PAGE
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE}
+        SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "scrabble": "Scrabble"}.get(event_type, event_type)
+        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble"}.get(event_type, event_type)
         print(f"{label} Web Spectator")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")

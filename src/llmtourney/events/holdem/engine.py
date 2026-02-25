@@ -169,7 +169,7 @@ class HoldemEvent(Event):
 
         lines.extend([
             "",
-            'Respond with a JSON object: {"action": "fold|call|raise", "amount": <int if raise>}',
+            'Respond with ONLY a JSON object: {"reasoning": "<your thinking>", "action": "fold|call|raise", "amount": <int if raise>}',
         ])
 
         return "\n".join(lines)

@@ -10,6 +10,9 @@
     "amount": {
       "type": "integer",
       "minimum": 0
+    },
+    "reasoning": {
+      "type": "string"
     }
   },
   "required": ["action"],

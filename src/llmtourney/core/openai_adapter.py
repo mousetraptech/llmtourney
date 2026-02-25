@@ -55,31 +55,46 @@ class OpenAIAdapter(ModelAdapter):
         completion = self._call_api(messages, max_tokens, timeout_s)
         elapsed_ms = (time.monotonic() - start) * 1000
 
+        if not completion.choices:
+            raise AdapterError(
+                "empty_response", self._model_id,
+                "API returned no choices",
+            )
+
         choice = completion.choices[0]
         raw_text = choice.message.content or ""
         reasoning_text = getattr(choice.message, "reasoning_content", None)
 
+        usage = completion.usage
         return AdapterResponse(
             raw_text=raw_text,
             reasoning_text=reasoning_text,
-            input_tokens=completion.usage.prompt_tokens,
-            output_tokens=completion.usage.completion_tokens,
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
             latency_ms=elapsed_ms,
             model_id=self._model_id,
-            model_version=completion.model,
+            model_version=completion.model or self._model_id,
         )
 
     def _call_api(self, messages, max_tokens, timeout_s):
         """Call the API with one rate-limit retry."""
+        # Newer OpenAI models (gpt-5, o-series) use different params
+        _reasoning_model = any(
+            p in self._model_id for p in ("gpt-5", "o1", "o3", "o4")
+        )
+        token_param = "max_completion_tokens" if _reasoning_model else "max_tokens"
+        kwargs: dict[str, Any] = {
+            "model": self._model_id,
+            "messages": messages,
+            token_param: max_tokens,
+            "timeout": timeout_s,
+        }
+        # Reasoning models only support temperature=1
+        if not _reasoning_model:
+            kwargs["temperature"] = self._temperature
         for attempt in range(2):
             try:
-                return self._client.chat.completions.create(
-                    model=self._model_id,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=self._temperature,
-                    timeout=timeout_s,
-                )
+                return self._client.chat.completions.create(**kwargs)
             except _openai_module.APITimeoutError as e:
                 raise AdapterError("timeout", self._model_id, str(e)) from e
             except _openai_module.RateLimitError as e:

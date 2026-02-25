@@ -62,10 +62,11 @@ class TestDeterminism:
             result = TournamentEngine(config).run()
             runs.append(result)
 
-        for jsonl_0, jsonl_1 in zip(
-            sorted(runs[0].telemetry_dir.glob("*.jsonl")),
-            sorted(runs[1].telemetry_dir.glob("*.jsonl")),
-        ):
+        files_0 = sorted(runs[0].telemetry_dir.glob("*.jsonl"))
+        files_1 = sorted(runs[1].telemetry_dir.glob("*.jsonl"))
+        assert len(files_0) == len(files_1), "Different number of telemetry files"
+
+        for jsonl_0, jsonl_1 in zip(files_0, files_1):
             lines_0 = jsonl_0.read_text().strip().split("\n")
             lines_1 = jsonl_1.read_text().strip().split("\n")
             assert len(lines_0) == len(lines_1), "Different number of telemetry lines"
@@ -73,8 +74,8 @@ class TestDeterminism:
             for line_0, line_1 in zip(lines_0, lines_1):
                 d0 = json.loads(line_0)
                 d1 = json.loads(line_1)
-                # Timestamps and latency will differ — remove before comparison
-                for key in ("timestamp", "latency_ms"):
+                # Timestamps, latency, and match_id (contains UUID) will differ
+                for key in ("timestamp", "latency_ms", "match_id"):
                     d0.pop(key, None)
                     d1.pop(key, None)
                 assert d0 == d1

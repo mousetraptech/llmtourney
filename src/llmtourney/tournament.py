@@ -8,6 +8,7 @@ logs telemetry, and produces aggregate standings.
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -23,6 +24,7 @@ from llmtourney.core.referee import Referee, Ruling, ViolationKind
 from llmtourney.core.sanitizer import sanitize_text
 from llmtourney.core.seed import SeedManager
 from llmtourney.core.telemetry import TelemetryEntry, TelemetryLogger
+from llmtourney.events.base import Event
 from llmtourney.events.holdem.engine import HoldemEvent
 from llmtourney.events.holdem.strategies import (
     always_call_strategy,
@@ -30,6 +32,9 @@ from llmtourney.events.holdem.strategies import (
     injector_strategy,
     simple_heuristic_strategy,
 )
+from llmtourney.events.checkers.engine import CheckersEvent
+from llmtourney.events.scrabble.engine import ScrabbleEvent
+from llmtourney.events.tictactoe.engine import TicTacToeEvent
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -177,7 +182,19 @@ class TournamentEngine:
                 context={"seed": seed},
             )
             return response, True
-        except AdapterError:
+        except AdapterError as exc:
+            print(f"[WARN] adapter error for {model_name}: {exc}")
+            return AdapterResponse(
+                raw_text="",
+                reasoning_text=None,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=0.0,
+                model_id=model_name,
+                model_version=model_name,
+            ), False
+        except Exception as exc:
+            print(f"[WARN] unexpected error querying {model_name}: {exc}")
             return AdapterResponse(
                 raw_text="",
                 reasoning_text=None,
@@ -188,16 +205,21 @@ class TournamentEngine:
                 model_version=model_name,
             ), False
 
-    def _build_event(self, event_name: str, event_cfg: EventConfig) -> HoldemEvent:
+    def _build_event(self, event_name: str, event_cfg: EventConfig) -> Event:
         """Instantiate an event engine from config."""
-        # Currently only holdem is supported
-        if event_name != "holdem":
-            raise ValueError(f"Unknown event: {event_name!r}")
-        return HoldemEvent(
-            hands_per_match=event_cfg.hands_per_match,
-            starting_stack=event_cfg.starting_stack,
-            blinds=event_cfg.blinds,
-        )
+        if event_name == "checkers":
+            return CheckersEvent(games_per_match=event_cfg.games_per_match)
+        if event_name == "holdem":
+            return HoldemEvent(
+                hands_per_match=event_cfg.hands_per_match,
+                starting_stack=event_cfg.starting_stack,
+                blinds=event_cfg.blinds,
+            )
+        if event_name == "scrabble":
+            return ScrabbleEvent()
+        if event_name == "tictactoe":
+            return TicTacToeEvent(games_per_match=event_cfg.games_per_match)
+        raise ValueError(f"Unknown event: {event_name!r}")
 
     # ------------------------------------------------------------------
     # Internal: match execution
@@ -211,9 +233,11 @@ class TournamentEngine:
         model_b: str,
     ) -> MatchResult:
         """Execute a single match between two models."""
-        match_id = f"{event_name}-{model_a}-vs-{model_b}"
+        short_id = uuid.uuid4().hex[:6]
+        match_id = f"{event_name}-{model_a}-vs-{model_b}-{short_id}"
+        deterministic_key = f"{event_name}-{model_a}-vs-{model_b}"
         seed = self.seed_mgr.get_match_seed(
-            event_name, 1, hash(match_id) % 10000
+            event_name, 1, hash(deterministic_key) % 10000
         )
 
         event = self._build_event(event_name, event_cfg)
@@ -225,6 +249,28 @@ class TournamentEngine:
         player_models = {"player_a": model_a, "player_b": model_b}
 
         turn_number = 0
+        # Stuck-loop detection: 3 consecutive violations of the same kind
+        # triggers match forfeit. For illegal moves, "same kind" means
+        # identical word+position. For malformed JSON / timeout, any
+        # consecutive run of that violation type counts.
+        _last_violation_key: dict[str, tuple] = {}  # player_id -> (type, word, pos)
+        _violation_streak: dict[str, int] = {"player_a": 0, "player_b": 0}
+        STUCK_LOOP_LIMIT = 3
+
+        def _check_stuck_loop(pid: str, vtype: str, action: dict | None = None):
+            """Increment streak and force-forfeit if stuck."""
+            if action and vtype == "illegal_move":
+                vkey = (vtype, action.get("word", ""), str(action.get("position", "")))
+            else:
+                vkey = (vtype, "", "")
+            if vkey == _last_violation_key.get(pid):
+                _violation_streak[pid] += 1
+            else:
+                _violation_streak[pid] = 1
+                _last_violation_key[pid] = vkey
+            if _violation_streak[pid] >= STUCK_LOOP_LIMIT:
+                if hasattr(event, "force_forfeit_match"):
+                    event.force_forfeit_match(pid)
 
         while not event.is_terminal():
             referee.new_turn()
@@ -232,9 +278,6 @@ class TournamentEngine:
             model_name = player_models[player_id]
             adapter = self.adapters[model_name]
             prompt = event.get_prompt(player_id)
-
-            # Capture pre-action state
-            snapshot = event.get_state_snapshot()
 
             # Query model
             response, query_ok = self._safe_query(
@@ -245,6 +288,8 @@ class TournamentEngine:
                     player_id, ViolationKind.TIMEOUT, severity=2,
                     details="adapter error",
                 )
+                event.forfeit_turn(player_id)
+                snapshot = event.get_state_snapshot()
                 turn_number += 1
                 self._log_turn(
                     logger,
@@ -259,7 +304,7 @@ class TournamentEngine:
                     violation=ViolationKind.TIMEOUT.value,
                     ruling=Ruling.FORFEIT_TURN.value,
                 )
-                event.forfeit_turn(player_id)
+                _check_stuck_loop(player_id, "timeout")
                 continue
 
             raw_text = sanitize_text(response.raw_text)
@@ -300,6 +345,8 @@ class TournamentEngine:
                         parsed = parser.parse("", event.action_schema)
 
                 if not parsed.success:
+                    event.forfeit_turn(player_id)
+                    snapshot = event.get_state_snapshot()
                     turn_number += 1
                     self._log_turn(
                         logger,
@@ -314,7 +361,7 @@ class TournamentEngine:
                         violation=violation,
                         ruling=ruling,
                     )
-                    event.forfeit_turn(player_id)
+                    _check_stuck_loop(player_id, "malformed_json")
                     continue
 
             # Validate game legality
@@ -354,6 +401,8 @@ class TournamentEngine:
                         )
 
                 if not parsed.success or not validation.legal:
+                    event.forfeit_turn(player_id)
+                    snapshot = event.get_state_snapshot()
                     turn_number += 1
                     self._log_turn(
                         logger,
@@ -368,7 +417,10 @@ class TournamentEngine:
                         violation=violation,
                         ruling=ruling,
                     )
-                    event.forfeit_turn(player_id)
+                    _check_stuck_loop(
+                        player_id, "illegal_move",
+                        parsed.action if parsed.success else None,
+                    )
                     continue
 
             # Check for injection
@@ -381,8 +433,11 @@ class TournamentEngine:
                 )
                 violation = ViolationKind.INJECTION_ATTEMPT.value
 
-            # Apply the valid action
+            # Apply the valid action — reset stuck-loop tracking
+            _violation_streak[player_id] = 0
+            _last_violation_key.pop(player_id, None)
             event.apply_action(player_id, parsed.action)
+            snapshot = event.get_state_snapshot()
 
             turn_number += 1
             self._log_turn(
@@ -454,6 +509,12 @@ class TournamentEngine:
         ruling: str | None,
     ) -> None:
         """Write a single turn entry to the telemetry log."""
+        # Prefer native adapter reasoning (thinking blocks, o1); fall back
+        # to in-JSON "reasoning" field if the model included one.
+        reasoning = response.reasoning_text
+        if not reasoning and parsed.action:
+            reasoning = parsed.action.get("reasoning")
+
         entry = TelemetryEntry(
             turn_number=turn_number,
             hand_number=snapshot.get("hand_number", 0),
@@ -463,7 +524,7 @@ class TournamentEngine:
             model_version=response.model_version,
             prompt=prompt,
             raw_output=raw_text,
-            reasoning_output=response.reasoning_text,
+            reasoning_output=reasoning,
             parsed_action=parsed.action,
             parse_success=parsed.success,
             validation_result=validation_result,
