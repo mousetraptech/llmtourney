@@ -224,6 +224,13 @@ class TournamentEngine:
             return ConnectFourEvent(games_per_match=event_cfg.games_per_match)
         raise ValueError(f"Unknown event: {event_name!r}")
 
+    def _get_time_limit_ms(self, model_name: str) -> int | None:
+        """Resolve per-model shot clock limit, or None if disabled."""
+        sc = self.config.shot_clock
+        if sc is None:
+            return None
+        return sc.model_overrides.get(model_name, sc.default_ms)
+
     # ------------------------------------------------------------------
     # Internal: match execution
     # ------------------------------------------------------------------
@@ -246,17 +253,17 @@ class TournamentEngine:
         event = self._build_event(event_name, event_cfg)
         event.reset(seed)
 
-        referee = Referee()
+        referee = Referee(escalation=self.config.forfeit_escalation)
         logger = TelemetryLogger(self.telemetry_dir, match_id)
         parser = ActionParser()
         player_models = {"player_a": model_a, "player_b": model_b}
 
         turn_number = 0
+        match_forfeit_ruling: str | None = None  # "completed" or "match_forfeit"
+
         # Stuck-loop detection: 3 consecutive violations of the same kind
-        # triggers match forfeit. For illegal moves, "same kind" means
-        # identical word+position. For malformed JSON / timeout, any
-        # consecutive run of that violation type counts.
-        _last_violation_key: dict[str, tuple] = {}  # player_id -> (type, word, pos)
+        # triggers match forfeit. Independent safety net alongside escalation.
+        _last_violation_key: dict[str, tuple] = {}
         _violation_streak: dict[str, int] = {"player_a": 0, "player_b": 0}
         STUCK_LOOP_LIMIT = 3
 
@@ -272,15 +279,52 @@ class TournamentEngine:
                 _violation_streak[pid] = 1
                 _last_violation_key[pid] = vkey
             if _violation_streak[pid] >= STUCK_LOOP_LIMIT:
-                if hasattr(event, "force_forfeit_match"):
-                    event.force_forfeit_match(pid)
+                event.award_forfeit_wins(pid)
+
+        def _handle_forfeit_turn(
+            pid: str, vkind: ViolationKind
+        ) -> bool:
+            """Record turn forfeit via escalation. Returns True if match forfeited."""
+            nonlocal match_forfeit_ruling
+            escalation_ruling = referee.record_turn_forfeit(pid, vkind)
+            if escalation_ruling == Ruling.FORFEIT_MATCH:
+                event.award_forfeit_wins(pid)
+                match_forfeit_ruling = "match_forfeit"
+                print(
+                    f"[FORFEIT] {player_models[pid]} forfeits match "
+                    f"({referee.get_strikes(pid)} strikes)"
+                )
+                return True
+            return False
+
+        def _telemetry_extras(pid: str, time_limit: int | None, time_exceeded: bool):
+            """Build shot clock / escalation telemetry kwargs."""
+            return {
+                "time_limit_ms": time_limit,
+                "time_exceeded": time_exceeded,
+                "cumulative_strikes": referee.get_strikes(pid),
+                "strike_limit": referee.match_forfeit_threshold,
+            }
 
         while not event.is_terminal():
             referee.new_turn()
             player_id = event.current_player()
             model_name = player_models[player_id]
             adapter = self.adapters[model_name]
+            time_limit_ms = self._get_time_limit_ms(model_name)
             prompt = event.get_prompt(player_id)
+
+            # Inject shot clock notice into prompt
+            if time_limit_ms is not None:
+                strikes = referee.get_strikes(player_id)
+                threshold = referee.match_forfeit_threshold or "N/A"
+                clock_notice = (
+                    f"\n[TIME LIMIT: {time_limit_ms}ms per turn. "
+                    f"Exceeding this forfeits your turn. "
+                    f"Strikes: {strikes}/{threshold}. "
+                    f"Reaching {threshold} forfeits the match.]"
+                )
+                prompt = prompt + clock_notice
 
             # Query model
             response, query_ok = self._safe_query(
@@ -292,6 +336,24 @@ class TournamentEngine:
                     details="adapter error",
                 )
                 event.forfeit_turn(player_id)
+                if _handle_forfeit_turn(player_id, ViolationKind.TIMEOUT):
+                    snapshot = event.get_state_snapshot()
+                    turn_number += 1
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=snapshot,
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text="",
+                        parsed=parser.parse("", event.action_schema),
+                        validation_result="forfeit",
+                        violation=ViolationKind.TIMEOUT.value,
+                        ruling=Ruling.FORFEIT_MATCH.value,
+                        **_telemetry_extras(player_id, time_limit_ms, False),
+                    )
+                    break
                 snapshot = event.get_state_snapshot()
                 turn_number += 1
                 self._log_turn(
@@ -306,11 +368,104 @@ class TournamentEngine:
                     validation_result="forfeit",
                     violation=ViolationKind.TIMEOUT.value,
                     ruling=Ruling.FORFEIT_TURN.value,
+                    **_telemetry_extras(player_id, time_limit_ms, False),
                 )
                 _check_stuck_loop(player_id, "timeout")
                 continue
 
-            raw_text = sanitize_text(response.raw_text)
+            raw_text = response.raw_text or ""
+            time_exceeded = False
+
+            # Shot clock check (post-hoc): discard response if over time
+            if time_limit_ms is not None and response.latency_ms > time_limit_ms:
+                time_exceeded = True
+                referee.record_violation(
+                    player_id, ViolationKind.TIMEOUT, severity=2,
+                    details=f"shot clock exceeded: {response.latency_ms:.0f}ms > {time_limit_ms}ms",
+                )
+                event.forfeit_turn(player_id)
+                if _handle_forfeit_turn(player_id, ViolationKind.TIMEOUT):
+                    snapshot = event.get_state_snapshot()
+                    turn_number += 1
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=snapshot,
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text=raw_text,
+                        parsed=parser.parse("", event.action_schema),
+                        validation_result="forfeit",
+                        violation=ViolationKind.TIMEOUT.value,
+                        ruling=Ruling.FORFEIT_MATCH.value,
+                        **_telemetry_extras(player_id, time_limit_ms, True),
+                    )
+                    break
+                snapshot = event.get_state_snapshot()
+                turn_number += 1
+                self._log_turn(
+                    logger,
+                    turn_number=turn_number,
+                    snapshot=snapshot,
+                    player_id=player_id,
+                    response=response,
+                    prompt=prompt,
+                    raw_text=raw_text,
+                    parsed=parser.parse("", event.action_schema),
+                    validation_result="forfeit",
+                    violation=ViolationKind.TIMEOUT.value,
+                    ruling=Ruling.FORFEIT_TURN.value,
+                    **_telemetry_extras(player_id, time_limit_ms, True),
+                )
+                _check_stuck_loop(player_id, "timeout")
+                continue
+
+            # Empty response check (before parsing)
+            if not raw_text.strip():
+                referee.record_violation(
+                    player_id, ViolationKind.EMPTY_RESPONSE, severity=2,
+                    details="empty or whitespace-only response",
+                )
+                event.forfeit_turn(player_id)
+                if _handle_forfeit_turn(player_id, ViolationKind.EMPTY_RESPONSE):
+                    snapshot = event.get_state_snapshot()
+                    turn_number += 1
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=snapshot,
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text=raw_text,
+                        parsed=parser.parse("", event.action_schema),
+                        validation_result="forfeit",
+                        violation=ViolationKind.EMPTY_RESPONSE.value,
+                        ruling=Ruling.FORFEIT_MATCH.value,
+                        **_telemetry_extras(player_id, time_limit_ms, False),
+                    )
+                    break
+                snapshot = event.get_state_snapshot()
+                turn_number += 1
+                self._log_turn(
+                    logger,
+                    turn_number=turn_number,
+                    snapshot=snapshot,
+                    player_id=player_id,
+                    response=response,
+                    prompt=prompt,
+                    raw_text=raw_text,
+                    parsed=parser.parse("", event.action_schema),
+                    validation_result="forfeit",
+                    violation=ViolationKind.EMPTY_RESPONSE.value,
+                    ruling=Ruling.FORFEIT_TURN.value,
+                    **_telemetry_extras(player_id, time_limit_ms, False),
+                )
+                _check_stuck_loop(player_id, "empty_response")
+                continue
+
+            raw_text = sanitize_text(raw_text)
             parsed = parser.parse(raw_text, event.action_schema)
 
             violation = None
@@ -349,6 +504,24 @@ class TournamentEngine:
 
                 if not parsed.success:
                     event.forfeit_turn(player_id)
+                    if _handle_forfeit_turn(player_id, ViolationKind.MALFORMED_JSON):
+                        snapshot = event.get_state_snapshot()
+                        turn_number += 1
+                        self._log_turn(
+                            logger,
+                            turn_number=turn_number,
+                            snapshot=snapshot,
+                            player_id=player_id,
+                            response=response,
+                            prompt=prompt,
+                            raw_text=raw_text,
+                            parsed=parsed,
+                            validation_result="forfeit",
+                            violation=violation,
+                            ruling=Ruling.FORFEIT_MATCH.value,
+                            **_telemetry_extras(player_id, time_limit_ms, False),
+                        )
+                        break
                     snapshot = event.get_state_snapshot()
                     turn_number += 1
                     self._log_turn(
@@ -363,6 +536,7 @@ class TournamentEngine:
                         validation_result="forfeit",
                         violation=violation,
                         ruling=ruling,
+                        **_telemetry_extras(player_id, time_limit_ms, False),
                     )
                     _check_stuck_loop(player_id, "malformed_json")
                     continue
@@ -405,6 +579,24 @@ class TournamentEngine:
 
                 if not parsed.success or not validation.legal:
                     event.forfeit_turn(player_id)
+                    if _handle_forfeit_turn(player_id, ViolationKind.ILLEGAL_MOVE):
+                        snapshot = event.get_state_snapshot()
+                        turn_number += 1
+                        self._log_turn(
+                            logger,
+                            turn_number=turn_number,
+                            snapshot=snapshot,
+                            player_id=player_id,
+                            response=response,
+                            prompt=prompt,
+                            raw_text=raw_text,
+                            parsed=parsed,
+                            validation_result="forfeit",
+                            violation=violation,
+                            ruling=Ruling.FORFEIT_MATCH.value,
+                            **_telemetry_extras(player_id, time_limit_ms, False),
+                        )
+                        break
                     snapshot = event.get_state_snapshot()
                     turn_number += 1
                     self._log_turn(
@@ -419,6 +611,7 @@ class TournamentEngine:
                         validation_result="forfeit",
                         violation=violation,
                         ruling=ruling,
+                        **_telemetry_extras(player_id, time_limit_ms, False),
                     )
                     _check_stuck_loop(
                         player_id, "illegal_move",
@@ -455,6 +648,7 @@ class TournamentEngine:
                 validation_result="legal",
                 violation=violation,
                 ruling=ruling,
+                **_telemetry_extras(player_id, time_limit_ms, False),
             )
 
         # Finalize
@@ -469,19 +663,32 @@ class TournamentEngine:
                     "malformed_json": 0,
                     "illegal_move": 0,
                     "timeout": 0,
+                    "empty_response": 0,
                     "injection_attempts": 0,
                     "total_severity": 0,
                     "retries_used": 0,
+                    "turn_forfeits": 0,
                 }
+
+        # Build match summary extras
+        match_extra: dict = {
+            "event": event_name,
+            "player_models": player_models,
+            "highlight_hands": event.get_highlight_hands(),
+            "ruling": match_forfeit_ruling or "completed",
+        }
+        forfeit_player = referee.get_match_forfeit_player()
+        if forfeit_player:
+            match_extra["forfeit_details"] = {
+                "forfeiting_player": forfeit_player,
+                "forfeiting_model": player_models[forfeit_player],
+                "turn_forfeits": referee.get_strikes(forfeit_player),
+            }
 
         logger.finalize_match(
             scores=scores,
             fidelity=fidelity,
-            extra={
-                "event": event_name,
-                "player_models": player_models,
-                "highlight_hands": event.get_highlight_hands(),
-            },
+            extra=match_extra,
         )
 
         return MatchResult(
@@ -510,6 +717,10 @@ class TournamentEngine:
         validation_result: str,
         violation: str | None,
         ruling: str | None,
+        time_limit_ms: int | None = None,
+        time_exceeded: bool = False,
+        cumulative_strikes: int = 0,
+        strike_limit: int | None = None,
     ) -> None:
         """Write a single turn entry to the telemetry log."""
         # Prefer native adapter reasoning (thinking blocks, o1); fall back
@@ -539,6 +750,10 @@ class TournamentEngine:
             latency_ms=response.latency_ms,
             engine_version=llmtourney.__version__,
             prompt_version="1.0.0",
+            time_limit_ms=time_limit_ms,
+            time_exceeded=time_exceeded,
+            cumulative_strikes=cumulative_strikes,
+            strike_limit=strike_limit,
         )
         logger.log_turn(entry)
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import llmtourney
 
-_SCHEMA_VERSION = "1.0.0"
+_SCHEMA_VERSION = "1.1.0"
 
 
 @dataclass
@@ -38,6 +38,11 @@ class TelemetryEntry:
     latency_ms: float
     engine_version: str
     prompt_version: str
+    # Shot clock / forfeit escalation fields (v1.1.0)
+    time_limit_ms: int | None = None
+    time_exceeded: bool = False
+    cumulative_strikes: int = 0
+    strike_limit: int | None = None
 
 
 class TelemetryLogger:

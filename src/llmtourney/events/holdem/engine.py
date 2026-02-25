@@ -287,6 +287,19 @@ class HoldemEvent(Event):
         """Return the JSON Schema for valid actions."""
         return self._action_schema
 
+    def force_forfeit_match(self, player_id: str) -> None:
+        """Force-end the match due to stuck-loop detection."""
+        self._terminal = True
+
+    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
+        """Award all chips (including current pot) to opponent."""
+        opponent = self._opponent(forfeiting_player_id)
+        total = self._stacks["player_a"] + self._stacks["player_b"] + self._pot
+        self._stacks[opponent] = total
+        self._stacks[forfeiting_player_id] = 0
+        self._pot = 0
+        self._terminal = True
+
     def get_highlight_hands(self) -> list[int]:
         """Return list of hand numbers flagged as highlights."""
         return list(self._highlight_hands)

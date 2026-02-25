@@ -191,6 +191,13 @@ class ConnectFourEvent(Event):
         """Force-end the match due to stuck-loop detection."""
         self._terminal = True
 
+    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
+        """Award remaining games to opponent."""
+        opponent = self._opponent(forfeiting_player_id)
+        remaining = self._games_per_match - len(self._game_results)
+        self._series_scores[opponent] += float(remaining)
+        self._terminal = True
+
     def is_terminal(self) -> bool:
         return self._terminal
 

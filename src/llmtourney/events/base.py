@@ -64,6 +64,14 @@ class Event(ABC):
     def action_schema(self) -> dict:
         """Return the JSON Schema for valid actions in this event."""
 
+    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
+        """Award remaining games/chips to opponent on match forfeit.
+
+        Default implementation delegates to force_forfeit_match.
+        Series-based and chip-based engines should override.
+        """
+        self.force_forfeit_match(forfeiting_player_id)
+
     @abstractmethod
     def get_highlight_hands(self) -> list[int]:
         """Return list of hand/turn numbers flagged as highlights."""

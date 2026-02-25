@@ -280,6 +280,23 @@ body {
 #final-panel .winner { font-size: 20px; font-weight: bold; }
 #final-panel .breakdown { font-size: 14px; margin-top: 6px; }
 #final-panel .stats { color: var(--dim); margin-top: 8px; font-size: 12px; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--cyan); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -289,6 +306,12 @@ body {
   <span class="title">TIC-TAC-TOE</span>
   <span id="matchup"></span>
   <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
 </div>
 
 <div id="board-area">
@@ -368,7 +391,9 @@ const S = {
   finished: false,
   finalScores: {},
   highlightHands: [],
-  emojis: { player_a: '', player_b: '' }
+  emojis: { player_a: '', player_b: '' },
+  // Shot clock
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: { player_a: 0, player_b: 0 }, strikeLimit: null, waitingOn: '', lastTimeExceeded: false }
 };
 
 const rawLines = [];
@@ -421,6 +446,13 @@ function processTurn(data) {
   if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
   else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
   assignEmojis();
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined) S.shotClock.strikes[playerId] = data.cumulative_strikes;
+  S.shotClock.lastTimeExceeded = !!data.time_exceeded;
+  S.shotClock.lastTurnTime = Date.now();
+  S.shotClock.waitingOn = playerId === 'player_a' ? 'player_b' : 'player_a';
 
   const handNum = snap.hand_number || 1;
   const gameTurn = snap.game_turn || 0;
@@ -735,8 +767,37 @@ function renderFooter() {
   document.getElementById('line-count').textContent = rawLines.length;
 }
 
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (!S.finished && !isReplaying && S.shotClock.lastTurnTime) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var pct = remaining / S.shotClock.timeLimitMs;
+    display.className = 'clock-display ' + (pct <= 0 ? 'clock-danger' : pct < 0.2 ? 'clock-danger' : pct < 0.5 ? 'clock-warn' : 'clock-ok');
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wModel = S.shotClock.waitingOn === 'player_a' ? (S.modelA || 'A') : (S.modelB || 'B');
+  label.textContent = S.finished ? 'SHOT CLOCK' : 'SHOT CLOCK \u00b7 ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var sA = S.shotClock.strikes.player_a || 0;
+    var sB = S.shotClock.strikes.player_b || 0;
+    var nA = S.modelA || 'A', nB = S.modelB || 'B';
+    strikeEl.innerHTML = '<span class="player-a">' + nA + ': ' + sA + '/' + S.shotClock.strikeLimit + '</span> \u00b7 <span class="player-b">' + nB + ': ' + sB + '/' + S.shotClock.strikeLimit + '</span>';
+  } else { strikeEl.innerHTML = ''; }
+}
+
 function renderAll() {
   renderHeader();
+  renderShotClock();
   renderBoard();
   renderSidebar();
   renderGameHistory();
@@ -828,6 +889,11 @@ setTimeout(() => {
     isReplaying = false;
   }
 }, 300);
+// Shot clock countdown
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+
 </script>
 </body>
 </html>"""
@@ -1088,6 +1154,23 @@ body {
 #final-panel .winner { font-size: 20px; font-weight: bold; }
 #final-panel .breakdown { font-size: 14px; margin-top: 6px; }
 #final-panel .stats { color: var(--dim); margin-top: 8px; font-size: 12px; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--cyan); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -1097,6 +1180,12 @@ body {
   <span class="title">CHECKERS</span>
   <span id="matchup"></span>
   <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
 </div>
 
 <div id="board-area">
@@ -1182,7 +1271,9 @@ const S = {
   finished: false,
   finalScores: {},
   highlightHands: [],
-  emojis: { player_a: '', player_b: '' }
+  emojis: { player_a: '', player_b: '' },
+  // Shot clock
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: { player_a: 0, player_b: 0 }, strikeLimit: null, waitingOn: '', lastTimeExceeded: false }
 };
 
 function emptyBoard() {
@@ -1239,6 +1330,13 @@ function processTurn(data) {
   if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
   else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
   assignEmojis();
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined) S.shotClock.strikes[playerId] = data.cumulative_strikes;
+  S.shotClock.lastTimeExceeded = !!data.time_exceeded;
+  S.shotClock.lastTurnTime = Date.now();
+  S.shotClock.waitingOn = playerId === 'player_a' ? 'player_b' : 'player_a';
 
   const handNum = snap.hand_number || 1;
   const gameTurn = snap.game_turn || 0;
@@ -1554,8 +1652,37 @@ function renderFooter() {
   document.getElementById('line-count').textContent = rawLines.length;
 }
 
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (!S.finished && !isReplaying && S.shotClock.lastTurnTime) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var pct = remaining / S.shotClock.timeLimitMs;
+    display.className = 'clock-display ' + (pct <= 0 ? 'clock-danger' : pct < 0.2 ? 'clock-danger' : pct < 0.5 ? 'clock-warn' : 'clock-ok');
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wModel = S.shotClock.waitingOn === 'player_a' ? (S.modelA || 'A') : (S.modelB || 'B');
+  label.textContent = S.finished ? 'SHOT CLOCK' : 'SHOT CLOCK \u00b7 ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var sA = S.shotClock.strikes.player_a || 0;
+    var sB = S.shotClock.strikes.player_b || 0;
+    var nA = S.modelA || 'A', nB = S.modelB || 'B';
+    strikeEl.innerHTML = '<span class="player-a">' + nA + ': ' + sA + '/' + S.shotClock.strikeLimit + '</span> \u00b7 <span class="player-b">' + nB + ': ' + sB + '/' + S.shotClock.strikeLimit + '</span>';
+  } else { strikeEl.innerHTML = ''; }
+}
+
 function renderAll() {
   renderHeader();
+  renderShotClock();
   renderBoard();
   renderSidebar();
   renderGameHistory();
@@ -1647,6 +1774,11 @@ setTimeout(function() {
     isReplaying = false;
   }
 }, 300);
+// Shot clock countdown
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+
 </script>
 </body>
 </html>"""
@@ -1892,6 +2024,23 @@ body {
 #final-panel .winner { font-size: 20px; font-weight: bold; }
 #final-panel .score-diff { font-size: 16px; margin-top: 4px; }
 #final-panel .stats { color: var(--dim); margin-top: 8px; font-size: 12px; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--cyan); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -1901,6 +2050,12 @@ body {
   <span class="title">SCRABBLE</span>
   <span id="matchup"></span>
   <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
 </div>
 
 <div id="board-area">
@@ -1986,6 +2141,8 @@ const S = {
   violations: { player_a: 0, player_b: 0 },
   totalBingos: { player_a: 0, player_b: 0 },
   emojis: { player_a: '', player_b: '' },
+  // Shot clock
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: { player_a: 0, player_b: 0 }, strikeLimit: null, waitingOn: '', lastTimeExceeded: false },
   previousCells: new Set()  // track which cells had tiles before this turn
 };
 
@@ -2047,6 +2204,13 @@ function processTurn(data) {
   if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
   else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
   assignEmojis();
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined) S.shotClock.strikes[playerId] = data.cumulative_strikes;
+  S.shotClock.lastTimeExceeded = !!data.time_exceeded;
+  S.shotClock.lastTurnTime = Date.now();
+  S.shotClock.waitingOn = playerId === 'player_a' ? 'player_b' : 'player_a';
 
   // Update game state
   if (snap.tiles_remaining !== undefined) S.tilesRemaining = snap.tiles_remaining;
@@ -2350,8 +2514,37 @@ function renderFooter() {
   document.getElementById('line-count').textContent = rawLines.length;
 }
 
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (!S.finished && !isReplaying && S.shotClock.lastTurnTime) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var pct = remaining / S.shotClock.timeLimitMs;
+    display.className = 'clock-display ' + (pct <= 0 ? 'clock-danger' : pct < 0.2 ? 'clock-danger' : pct < 0.5 ? 'clock-warn' : 'clock-ok');
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wModel = S.shotClock.waitingOn === 'player_a' ? (S.modelA || 'A') : (S.modelB || 'B');
+  label.textContent = S.finished ? 'SHOT CLOCK' : 'SHOT CLOCK \u00b7 ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var sA = S.shotClock.strikes.player_a || 0;
+    var sB = S.shotClock.strikes.player_b || 0;
+    var nA = S.modelA || 'A', nB = S.modelB || 'B';
+    strikeEl.innerHTML = '<span class="player-a">' + nA + ': ' + sA + '/' + S.shotClock.strikeLimit + '</span> \u00b7 <span class="player-b">' + nB + ': ' + sB + '/' + S.shotClock.strikeLimit + '</span>';
+  } else { strikeEl.innerHTML = ''; }
+}
+
 function renderAll() {
   renderHeader();
+  renderShotClock();
   renderBoard();
   renderSidebar();
   renderWordHistory();
@@ -2448,6 +2641,11 @@ setTimeout(() => {
     isReplaying = false;
   }
 }, 300);
+// Shot clock countdown
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+
 </script>
 </body>
 </html>"""
@@ -2681,6 +2879,23 @@ body {
 #final-panel .winner { font-size: 20px; font-weight: bold; }
 #final-panel .breakdown { font-size: 14px; margin-top: 6px; }
 #final-panel .stats { color: var(--dim); margin-top: 8px; font-size: 12px; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--cyan); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -2690,6 +2905,12 @@ body {
   <span class="title">CONNECT FOUR</span>
   <span id="matchup"></span>
   <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
 </div>
 
 <div id="board-area">
@@ -2775,7 +2996,9 @@ const S = {
   finished: false,
   finalScores: {},
   highlightHands: [],
-  emojis: { player_a: '', player_b: '' }
+  emojis: { player_a: '', player_b: '' },
+  // Shot clock
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: { player_a: 0, player_b: 0 }, strikeLimit: null, waitingOn: '', lastTimeExceeded: false }
 };
 
 const rawLines = [];
@@ -2826,6 +3049,13 @@ function processTurn(data) {
   if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
   else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
   assignEmojis();
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined) S.shotClock.strikes[playerId] = data.cumulative_strikes;
+  S.shotClock.lastTimeExceeded = !!data.time_exceeded;
+  S.shotClock.lastTurnTime = Date.now();
+  S.shotClock.waitingOn = playerId === 'player_a' ? 'player_b' : 'player_a';
 
   const handNum = snap.hand_number || 1;
   const gameTurn = snap.game_turn || 0;
@@ -3161,8 +3391,37 @@ function renderFooter() {
   document.getElementById('line-count').textContent = rawLines.length;
 }
 
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (!S.finished && !isReplaying && S.shotClock.lastTurnTime) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var pct = remaining / S.shotClock.timeLimitMs;
+    display.className = 'clock-display ' + (pct <= 0 ? 'clock-danger' : pct < 0.2 ? 'clock-danger' : pct < 0.5 ? 'clock-warn' : 'clock-ok');
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wModel = S.shotClock.waitingOn === 'player_a' ? (S.modelA || 'A') : (S.modelB || 'B');
+  label.textContent = S.finished ? 'SHOT CLOCK' : 'SHOT CLOCK \u00b7 ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var sA = S.shotClock.strikes.player_a || 0;
+    var sB = S.shotClock.strikes.player_b || 0;
+    var nA = S.modelA || 'A', nB = S.modelB || 'B';
+    strikeEl.innerHTML = '<span class="player-a">' + nA + ': ' + sA + '/' + S.shotClock.strikeLimit + '</span> \u00b7 <span class="player-b">' + nB + ': ' + sB + '/' + S.shotClock.strikeLimit + '</span>';
+  } else { strikeEl.innerHTML = ''; }
+}
+
 function renderAll() {
   renderHeader();
+  renderShotClock();
   renderBoard();
   renderSidebar();
   renderGameHistory();
@@ -3254,6 +3513,11 @@ setTimeout(() => {
     isReplaying = false;
   }
 }, 300);
+// Shot clock countdown
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+
 </script>
 </body>
 </html>"""

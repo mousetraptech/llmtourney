@@ -38,6 +38,21 @@ class ComputeCaps:
 
 
 @dataclass
+class ShotClockConfig:
+    default_ms: int  # e.g. 30000
+    model_overrides: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class ForfeitEscalationConfig:
+    turn_forfeit_threshold: int = 1  # 1 = no retries
+    match_forfeit_threshold: int = 3  # turn forfeits → match forfeit
+    strike_violations: list[str] = field(
+        default_factory=lambda: ["timeout", "malformed_json", "empty_response"]
+    )
+
+
+@dataclass
 class TournamentConfig:
     name: str
     seed: int
@@ -47,6 +62,8 @@ class TournamentConfig:
     events: dict[str, EventConfig] = field(default_factory=dict)
     compute_caps: ComputeCaps = field(default_factory=ComputeCaps)
     output_dir: Path | None = None
+    shot_clock: ShotClockConfig | None = None
+    forfeit_escalation: ForfeitEscalationConfig | None = None
 
 
 def load_config(path: Path) -> TournamentConfig:
@@ -88,6 +105,28 @@ def load_config(path: Path) -> TournamentConfig:
             games_per_match=e.get("games_per_match", 9),
         )
 
+    # Parse optional shot clock config
+    shot_clock = None
+    sc_raw = raw.get("shot_clock")
+    if sc_raw:
+        shot_clock = ShotClockConfig(
+            default_ms=sc_raw["default_ms"],
+            model_overrides=sc_raw.get("model_overrides", {}),
+        )
+
+    # Parse optional forfeit escalation config
+    forfeit_escalation = None
+    fe_raw = raw.get("forfeit_escalation")
+    if fe_raw:
+        forfeit_escalation = ForfeitEscalationConfig(
+            turn_forfeit_threshold=fe_raw.get("turn_forfeit_threshold", 1),
+            match_forfeit_threshold=fe_raw.get("match_forfeit_threshold", 3),
+            strike_violations=fe_raw.get(
+                "strike_violations",
+                ["timeout", "malformed_json", "empty_response"],
+            ),
+        )
+
     return TournamentConfig(
         name=t["name"],
         seed=t["seed"],
@@ -99,4 +138,6 @@ def load_config(path: Path) -> TournamentConfig:
             max_output_tokens=compute.get("max_output_tokens", 256),
             timeout_s=compute.get("timeout_s", 30.0),
         ),
+        shot_clock=shot_clock,
+        forfeit_escalation=forfeit_escalation,
     )
