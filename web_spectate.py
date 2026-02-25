@@ -60,6 +60,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "checkers"
     if stem.startswith("scrabble"):
         return "scrabble"
+    if stem.startswith("connectfour"):
+        return "connectfour"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -68,6 +70,8 @@ def detect_event_type(jsonl_path: Path) -> str:
                 return "tictactoe"
             if '"checkers"' in first:
                 return "checkers"
+            if '"connectfour"' in first:
+                return "connectfour"
     except Exception:
         pass
     return "scrabble"
@@ -2449,6 +2453,812 @@ setTimeout(() => {
 </html>"""
 
 
+# ── Connect Four HTML/CSS/JS ──────────────────────────────────────
+
+CONNECTFOUR_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Four Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --piece-x: #e8c840;
+  --piece-o: #e84040;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 16px; font-weight: bold; }
+.player-a { color: var(--piece-x); }
+.player-b { color: var(--piece-o); }
+#header .sub { margin-top: 4px; color: var(--dim); }
+
+/* Board + Sidebar layout */
+#board-area {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+#board-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  flex-shrink: 0;
+}
+
+/* Column numbers */
+#col-labels {
+  display: grid;
+  grid-template-columns: repeat(7, 48px);
+  gap: 4px;
+  margin-bottom: 4px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Board grid */
+#board {
+  display: grid;
+  grid-template-columns: repeat(7, 48px);
+  grid-template-rows: repeat(6, 48px);
+  gap: 4px;
+  background: #1a3a8a;
+  padding: 6px;
+  border-radius: 8px;
+}
+#board .cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #0d1117;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.cell.x-piece {
+  background: var(--piece-x);
+  box-shadow: inset 0 -3px 6px rgba(0,0,0,0.3);
+}
+.cell.o-piece {
+  background: var(--piece-o);
+  box-shadow: inset 0 -3px 6px rgba(0,0,0,0.3);
+}
+.cell.last-move {
+  box-shadow: 0 0 0 3px var(--green), inset 0 -3px 6px rgba(0,0,0,0.3);
+}
+.cell.win-cell {
+  box-shadow: 0 0 12px 4px var(--green), inset 0 -3px 6px rgba(0,0,0,0.3);
+  animation: glow 1s ease-in-out infinite alternate;
+}
+@keyframes glow {
+  0% { box-shadow: 0 0 8px 2px var(--green), inset 0 -3px 6px rgba(0,0,0,0.3); }
+  100% { box-shadow: 0 0 16px 6px var(--green), inset 0 -3px 6px rgba(0,0,0,0.3); }
+}
+.cell.fresh { animation: drop 0.4s ease-in; }
+@keyframes drop {
+  0% { transform: translateY(-200px); opacity: 0; }
+  60% { transform: translateY(10px); }
+  80% { transform: translateY(-4px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Sidebar */
+#sidebar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  flex: 1;
+  min-width: 220px;
+}
+#sidebar h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+.score-row { margin-bottom: 8px; }
+.score-row .name { font-weight: bold; font-size: 12px; }
+.score-bar {
+  height: 10px;
+  border-radius: 3px;
+  margin-top: 2px;
+  transition: width 0.5s ease;
+}
+.stat-line { color: var(--dim); font-size: 11px; margin: 3px 0; }
+.stat-line.violations { color: var(--red); }
+.game-assignment { font-size: 11px; margin: 2px 0; }
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* Game history */
+.game-entry {
+  padding: 3px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.game-entry .gnum { color: var(--dim); min-width: 50px; }
+.game-entry .result-win { font-weight: bold; }
+.game-entry .result-draw { color: var(--yellow); font-weight: bold; }
+
+/* Commentary */
+.comment-entry { padding: 2px 0; font-size: 11px; }
+.comment-entry .reasoning { color: var(--dim); font-style: italic; margin-left: 24px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Footer */
+#footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+#footer .status { font-size: 12px; }
+#copy-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+#copy-btn:hover { background: #1f2937; }
+#copy-btn .count { background: var(--border); padding: 1px 6px; border-radius: 8px; margin-left: 6px; font-size: 10px; }
+#copy-btn.copied { background: var(--green); color: #000; border-color: var(--green); }
+
+/* Final panel */
+#final-panel {
+  display: none;
+  text-align: center;
+  padding: 20px;
+  border-color: var(--red);
+}
+#final-panel.show { display: block; }
+#final-panel .winner { font-size: 20px; font-weight: bold; }
+#final-panel .breakdown { font-size: 14px; margin-top: 6px; }
+#final-panel .stats { color: var(--dim); margin-top: 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span class="badge badge-live" id="badge">LIVE</span>
+  <span class="title">CONNECT FOUR</span>
+  <span id="matchup"></span>
+  <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="board-area">
+  <div id="board-panel">
+    <div id="col-labels"></div>
+    <div id="board"></div>
+  </div>
+  <div id="sidebar">
+    <h3>Series Score</h3>
+    <div id="scores"></div>
+    <h3 style="margin-top:12px">Current Game</h3>
+    <div id="game-info"></div>
+    <div id="sidebar-stats"></div>
+  </div>
+</div>
+
+<div class="panel" id="final-panel">
+  <h3>Final Result</h3>
+  <div id="final-content"></div>
+</div>
+
+<div class="panel">
+  <h3>Game History</h3>
+  <div id="game-history"><span style="color:var(--dim);font-style:italic">No completed games</span></div>
+</div>
+
+<div class="panel">
+  <h3>Play-by-Play</h3>
+  <div id="commentary"><span style="color:var(--dim);font-style:italic">Waiting for action...</span></div>
+</div>
+
+<div id="footer">
+  <div class="status" id="status-text">
+    <span class="badge badge-live" style="font-size:10px">LIVE</span>
+    Waiting for data...
+  </div>
+  <button id="copy-btn" onclick="copyRunlog()">
+    Copy Runlog Path <span class="count" id="line-count">0</span>
+  </button>
+</div>
+
+<script>
+// ── Emoji system ─────────────────────────────────────────────────
+const EMOJI_POOL = [
+  '\u{1F525}','\u{1F9E0}','\u{1F47E}','\u{1F916}','\u{1F3AF}',
+  '\u{1F680}','\u{1F40D}','\u{1F98A}','\u{1F43B}','\u{1F985}',
+  '\u{1F409}','\u{1F3B2}','\u{1F9CA}','\u{1F30B}','\u{1F308}',
+  '\u{1F52E}','\u{1F9F2}','\u{1F41D}','\u{1F95D}','\u{1F344}'
+];
+function djb2(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+function pickEmojis(a, b) {
+  let ia = djb2(a) % EMOJI_POOL.length;
+  let ib = djb2(b) % EMOJI_POOL.length;
+  if (ib === ia) ib = (ia + 1) % EMOJI_POOL.length;
+  return { player_a: EMOJI_POOL[ia], player_b: EMOJI_POOL[ib] };
+}
+
+// ── Match state ──────────────────────────────────────────────────
+const ROWS = 6, COLS = 7;
+function emptyBoard() {
+  return Array.from({length: ROWS}, () => Array(COLS).fill(''));
+}
+
+const S = {
+  matchId: '', modelA: '', modelB: '',
+  board: emptyBoard(),
+  seriesScores: { player_a: 0, player_b: 0 },
+  gameNumber: 0,
+  gameTurn: 0,
+  turnCount: 0,
+  xPlayer: 'player_a',
+  firstPlayer: '',
+  lastCol: null,
+  lastRow: null,
+  previousBoard: emptyBoard(),
+  gameHistory: [],
+  commentary: [],
+  violations: { player_a: 0, player_b: 0 },
+  finished: false,
+  finalScores: {},
+  highlightHands: [],
+  emojis: { player_a: '', player_b: '' }
+};
+
+const rawLines = [];
+let turnQueue = [];
+let isReplaying = false;
+
+function shortModel(name) {
+  if (!name) return name;
+  return name.replace(/^anthropic\/claude-/, '').replace(/^anthropic\//, '').replace(/^openai\//, '');
+}
+
+function assignEmojis() {
+  if (S.modelA && S.modelB && !S.emojis.player_a) {
+    S.emojis = pickEmojis(S.modelA, S.modelB);
+  }
+}
+
+function truncateReasoning(text, max) {
+  max = max || 100;
+  if (!text) return null;
+  const lines = text.trim().split('\n');
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.length > 10) return t.length > max ? t.slice(0, max-3) + '...' : t;
+  }
+  return null;
+}
+
+// ── State machine ────────────────────────────────────────────────
+function processTurn(data) {
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    S.highlightHands = data.highlight_hands || [];
+    const pm = data.player_models || {};
+    if (pm.player_a) S.modelA = shortModel(pm.player_a);
+    if (pm.player_b) S.modelB = shortModel(pm.player_b);
+    assignEmojis();
+    return;
+  }
+
+  S.turnCount++;
+  const snap = data.state_snapshot || {};
+  const playerId = data.player_id || '';
+  const modelId = data.model_id || '';
+
+  if (!S.matchId) S.matchId = data.match_id || '';
+  if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
+  else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
+  assignEmojis();
+
+  const handNum = snap.hand_number || 1;
+  const gameTurn = snap.game_turn || 0;
+
+  // Detect new game
+  if (handNum !== S.gameNumber) {
+    if (S.gameNumber > 0 && snap.result) {
+      const already = S.gameHistory.find(g => g.gameNum === S.gameNumber);
+      if (!already) {
+        S.gameHistory.push({
+          gameNum: S.gameNumber,
+          result: snap.result,
+          xPlayer: S.xPlayer
+        });
+      }
+    }
+    S.gameNumber = handNum;
+    S.lastCol = null;
+    S.lastRow = null;
+    S.previousBoard = emptyBoard();
+  }
+
+  // Detect X/O assignment from prompt
+  const prompt = data.prompt || '';
+  if (gameTurn <= 1 && prompt) {
+    const xMatch = prompt.match(/You are (X|O)/);
+    if (xMatch) {
+      if (xMatch[1] === 'X') S.xPlayer = playerId;
+      else S.xPlayer = (playerId === 'player_a') ? 'player_b' : 'player_a';
+    }
+  }
+
+  if (gameTurn === 1) S.firstPlayer = playerId;
+  S.gameTurn = gameTurn;
+
+  // Update board from snapshot
+  if (snap.board) {
+    S.previousBoard = S.board.map(r => [...r]);
+    S.board = snap.board.map(r => [...r]);
+  }
+
+  // Update series scores
+  if (snap.series_scores) {
+    S.seriesScores = { ...snap.series_scores };
+  }
+
+  // Last move
+  S.lastCol = snap.last_column != null ? snap.last_column : null;
+  S.lastRow = snap.last_row != null ? snap.last_row : null;
+
+  // Violations
+  const violation = data.violation;
+  if (violation) S.violations[playerId] = (S.violations[playerId] || 0) + 1;
+
+  // Terminal — record final game result
+  if (snap.terminal && snap.result) {
+    const already = S.gameHistory.find(g => g.gameNum === S.gameNumber);
+    if (!already) {
+      S.gameHistory.push({
+        gameNum: S.gameNumber,
+        result: snap.result,
+        xPlayer: S.xPlayer
+      });
+    }
+  }
+
+  // Commentary
+  const reasoning = truncateReasoning(data.reasoning_output);
+  const parsed = data.parsed_action || {};
+  const col = snap.last_column;
+  if (gameTurn > 0) {
+    S.commentary.push({
+      turnNumber: S.turnCount,
+      gameNumber: S.gameNumber,
+      model: modelId,
+      playerId,
+      column: col,
+      reasoning,
+      latencyMs: data.latency_ms || 0,
+      isViolation: !!violation
+    });
+    if (S.commentary.length > 12) S.commentary.shift();
+  }
+}
+
+// ── Win detection (for highlighting) ─────────────────────────────
+function findWinCells(board) {
+  const cells = [];
+  // Horizontal
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c <= COLS - 4; c++) {
+      const v = board[r][c];
+      if (v && v === board[r][c+1] && v === board[r][c+2] && v === board[r][c+3]) {
+        cells.push([r,c],[r,c+1],[r,c+2],[r,c+3]);
+      }
+    }
+  }
+  // Vertical
+  for (let r = 0; r <= ROWS - 4; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const v = board[r][c];
+      if (v && v === board[r+1][c] && v === board[r+2][c] && v === board[r+3][c]) {
+        cells.push([r,c],[r+1,c],[r+2,c],[r+3,c]);
+      }
+    }
+  }
+  // Diagonal down-right
+  for (let r = 0; r <= ROWS - 4; r++) {
+    for (let c = 0; c <= COLS - 4; c++) {
+      const v = board[r][c];
+      if (v && v === board[r+1][c+1] && v === board[r+2][c+2] && v === board[r+3][c+3]) {
+        cells.push([r,c],[r+1,c+1],[r+2,c+2],[r+3,c+3]);
+      }
+    }
+  }
+  // Diagonal up-right
+  for (let r = 3; r < ROWS; r++) {
+    for (let c = 0; c <= COLS - 4; c++) {
+      const v = board[r][c];
+      if (v && v === board[r-1][c+1] && v === board[r-2][c+2] && v === board[r-3][c+3]) {
+        cells.push([r,c],[r-1,c+1],[r-2,c+2],[r-3,c+3]);
+      }
+    }
+  }
+  return cells;
+}
+
+// ── Rendering ────────────────────────────────────────────────────
+function renderBoard() {
+  // Column labels
+  const labels = document.getElementById('col-labels');
+  labels.innerHTML = '';
+  for (let c = 0; c < COLS; c++) {
+    const d = document.createElement('div');
+    d.textContent = c;
+    if (S.lastCol === c) d.style.color = 'var(--green)';
+    labels.appendChild(d);
+  }
+
+  const el = document.getElementById('board');
+  el.innerHTML = '';
+  const winCells = findWinCells(S.board);
+  const winSet = new Set(winCells.map(([r,c]) => r+','+c));
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      const v = S.board[r][c];
+      if (v === 'X') {
+        div.className += ' x-piece';
+      } else if (v === 'O') {
+        div.className += ' o-piece';
+      }
+      // Last move highlight
+      if (S.lastRow === r && S.lastCol === c) {
+        div.className += ' last-move';
+      }
+      // Win highlight
+      if (winSet.has(r+','+c)) {
+        div.className += ' win-cell';
+      }
+      // Drop animation for new pieces
+      if (v && S.previousBoard[r][c] !== v) {
+        div.className += ' fresh';
+      }
+      el.appendChild(div);
+    }
+  }
+}
+
+function renderHeader() {
+  const badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  const ea = S.emojis.player_a || '';
+  const eb = S.emojis.player_b || '';
+  document.getElementById('matchup').innerHTML =
+    `<span class="player-a">${ea} ${S.modelA || '???'}</span>` +
+    ` <span style="color:var(--dim)">vs</span> ` +
+    `<span class="player-b">${eb} ${S.modelB || '???'}</span>`;
+
+  const sa = S.finished ? (S.finalScores.player_a ?? S.seriesScores.player_a) : S.seriesScores.player_a;
+  const sb = S.finished ? (S.finalScores.player_b ?? S.seriesScores.player_b) : S.seriesScores.player_b;
+  document.getElementById('sub-info').innerHTML =
+    `<strong>Game ${S.gameNumber}</strong>` +
+    ` <span style="color:var(--dim)">|</span> ` +
+    `<span class="player-a" style="font-weight:bold">${sa}</span>` +
+    ` <span style="color:var(--dim)">\u2013</span> ` +
+    `<span class="player-b" style="font-weight:bold">${sb}</span>` +
+    ` <span style="color:var(--dim)">|</span> ` +
+    `<span style="color:var(--dim)">Move ${S.gameTurn}</span>`;
+}
+
+function renderSidebar() {
+  const sa = S.finished ? (S.finalScores.player_a ?? S.seriesScores.player_a) : S.seriesScores.player_a;
+  const sb = S.finished ? (S.finalScores.player_b ?? S.seriesScores.player_b) : S.seriesScores.player_b;
+  const maxScore = Math.max(sa, sb, 1);
+
+  const ea = S.emojis.player_a || '';
+  const eb = S.emojis.player_b || '';
+  const nameA = (S.modelA || 'Player A').slice(0, 18);
+  const nameB = (S.modelB || 'Player B').slice(0, 18);
+
+  const pctA = Math.max(0, Math.min(100, (sa / maxScore) * 100));
+  const pctB = Math.max(0, Math.min(100, (sb / maxScore) * 100));
+
+  document.getElementById('scores').innerHTML =
+    `<div class="score-row">
+      <div class="name player-a">${ea} ${nameA}</div>
+      <div class="score-bar" style="width:${pctA}%;background:var(--piece-x)">&nbsp;</div>
+      <div style="color:var(--piece-x);font-weight:bold">${sa}</div>
+    </div>
+    <div class="score-row">
+      <div class="name player-b">${eb} ${nameB}</div>
+      <div class="score-bar" style="width:${pctB}%;background:var(--piece-o)">&nbsp;</div>
+      <div style="color:var(--piece-o);font-weight:bold">${sb}</div>
+    </div>`;
+
+  // Current game info
+  const xName = S.xPlayer === 'player_a' ? nameA : nameB;
+  const oName = S.xPlayer === 'player_a' ? nameB : nameA;
+
+  let gameInfo = '';
+  if (S.gameNumber > 0) {
+    gameInfo = `<div class="game-assignment"><span style="color:var(--piece-x);font-weight:bold">\u25CF X</span> = ${xName} (Yellow)</div>` +
+               `<div class="game-assignment"><span style="color:var(--piece-o);font-weight:bold">\u25CF O</span> = ${oName} (Red)</div>` +
+               `<div class="stat-line" style="margin-top:6px">Move ${S.gameTurn} of game ${S.gameNumber}</div>`;
+  }
+  document.getElementById('game-info').innerHTML = gameInfo;
+
+  // Stats
+  let stats = '';
+  const va = S.violations.player_a || 0;
+  const vb = S.violations.player_b || 0;
+  if (va + vb > 0) stats += `<div class="stat-line violations" style="margin-top:8px">Violations: A:${va} B:${vb}</div>`;
+  document.getElementById('sidebar-stats').innerHTML = stats;
+}
+
+function renderGameHistory() {
+  const el = document.getElementById('game-history');
+  if (!S.gameHistory.length) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No completed games</span>';
+    return;
+  }
+  const nameA = S.modelA || 'Player A';
+  const nameB = S.modelB || 'Player B';
+  el.innerHTML = S.gameHistory.map(g => {
+    let resultHTML;
+    if (g.result === 'x_wins') {
+      const winPid = g.xPlayer;
+      const winName = winPid === 'player_a' ? nameA : nameB;
+      const color = winPid === 'player_a' ? 'var(--piece-x)' : 'var(--piece-o)';
+      resultHTML = `<span class="result-win" style="color:${color}">X wins</span> <span style="color:var(--dim)">(${winName})</span>`;
+    } else if (g.result === 'o_wins') {
+      const winPid = g.xPlayer === 'player_a' ? 'player_b' : 'player_a';
+      const winName = winPid === 'player_a' ? nameA : nameB;
+      const color = winPid === 'player_a' ? 'var(--piece-x)' : 'var(--piece-o)';
+      resultHTML = `<span class="result-win" style="color:${color}">O wins</span> <span style="color:var(--dim)">(${winName})</span>`;
+    } else {
+      resultHTML = `<span class="result-draw">Draw</span>`;
+    }
+    const hl = S.highlightHands.includes(g.gameNum) ? '<span style="color:var(--yellow)">\u2605 </span>' : '  ';
+    return `<div class="game-entry">${hl}<span class="gnum">Game ${g.gameNum}</span>${resultHTML}</div>`;
+  }).join('');
+}
+
+function renderCommentary() {
+  const el = document.getElementById('commentary');
+  if (!S.commentary.length) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting for action...</span>';
+    return;
+  }
+  el.innerHTML = [...S.commentary].reverse().map(e => {
+    const color = e.playerId === 'player_a' ? 'var(--piece-x)' : 'var(--piece-o)';
+    const mark = e.playerId === S.xPlayer ? 'X' : 'O';
+    let actionHTML;
+    if (e.isViolation) {
+      actionHTML = `<span style="color:var(--red);font-weight:bold">violation!</span>`;
+    } else if (e.column != null) {
+      actionHTML = `<span style="color:var(--green)">${mark}</span> \u2192 col <span style="font-weight:bold">${e.column}</span>`;
+    } else {
+      actionHTML = `<span style="color:var(--dim)">...</span>`;
+    }
+    const latency = e.latencyMs > 100 ? ` <span style="color:var(--dim)">(${(e.latencyMs/1000).toFixed(1)}s)</span>` : '';
+    const reason = e.reasoning ? `<span class="reasoning">"${e.reasoning}"</span>` : '';
+    return `<div class="comment-entry"><span style="color:var(--dim)">G${e.gameNumber} T${e.turnNumber}</span> <span style="color:${color};font-weight:bold">${e.model}</span> ${actionHTML}${latency}${reason}</div>`;
+  }).join('');
+}
+
+function renderFinal() {
+  if (!S.finished) { document.getElementById('final-panel').className = 'panel'; return; }
+  document.getElementById('final-panel').className = 'panel show';
+  const sa = S.finalScores.player_a || 0;
+  const sb = S.finalScores.player_b || 0;
+
+  let wA = 0, wB = 0, draws = 0;
+  S.gameHistory.forEach(g => {
+    if (g.result === 'draw') { draws++; return; }
+    const xWins = g.result === 'x_wins';
+    const winPid = xWins ? g.xPlayer : (g.xPlayer === 'player_a' ? 'player_b' : 'player_a');
+    if (winPid === 'player_a') wA++;
+    else wB++;
+  });
+
+  let html;
+  if (sa === sb) {
+    html = `<div class="winner" style="color:var(--yellow)">DRAW</div><div class="breakdown">${sa} each</div>`;
+  } else {
+    const wPid = sa > sb ? 'player_a' : 'player_b';
+    const emoji = S.emojis[wPid] || '';
+    const wName = wPid === 'player_a' ? S.modelA : S.modelB;
+    const wColor = wPid === 'player_a' ? 'var(--piece-x)' : 'var(--piece-o)';
+    html = `<div class="winner" style="color:${wColor}">${emoji} ${wName} WINS</div>` +
+           `<div class="breakdown">${sa} \u2013 ${sb}</div>`;
+  }
+  const nameA = S.modelA || 'A';
+  const nameB = S.modelB || 'B';
+  html += `<div class="stats">${nameA}: ${wA}W ${draws}D ${wB}L &nbsp;\u00B7&nbsp; ${nameB}: ${wB}W ${draws}D ${wA}L</div>`;
+  const va = S.violations.player_a || 0, vb = S.violations.player_b || 0;
+  if (va + vb > 0) html += `<div class="stats" style="color:var(--red)">Violations: A:${va} B:${vb}</div>`;
+  document.getElementById('final-content').innerHTML = html;
+}
+
+function renderFooter() {
+  const st = document.getElementById('status-text');
+  if (S.finished) {
+    st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Series Complete';
+  } else {
+    st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
+  }
+  document.getElementById('line-count').textContent = rawLines.length;
+}
+
+function renderAll() {
+  renderHeader();
+  renderBoard();
+  renderSidebar();
+  renderGameHistory();
+  renderCommentary();
+  renderFinal();
+  renderFooter();
+}
+
+// ── Copy runlog ──────────────────────────────────────────────────
+function copyRunlog() {
+  const btn = document.getElementById('copy-btn');
+  fetch('/filepath').then(r => r.text()).then(function(fp) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(fp).then(function() {
+        btn.classList.add('copied');
+        btn.textContent = 'Copied path!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
+        }, 2000);
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = fp;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.classList.add('copied');
+      btn.textContent = 'Copied path!';
+      setTimeout(function() {
+        btn.classList.remove('copied');
+        btn.innerHTML = 'Copy Runlog Path <span class="count">' + rawLines.length + '</span>';
+      }, 2000);
+    }
+  });
+}
+
+// ── SSE client ───────────────────────────────────────────────────
+function startSSE() {
+  const es = new EventSource('/events');
+  es.onmessage = function(e) {
+    const line = e.data;
+    rawLines.push(line);
+    try {
+      const data = JSON.parse(line);
+      if (isReplaying) {
+        turnQueue.push(data);
+      } else {
+        processTurn(data);
+        renderAll();
+      }
+    } catch(err) {}
+    document.getElementById('line-count').textContent = rawLines.length;
+  };
+  es.addEventListener('done', function() {
+    es.close();
+  });
+  es.onerror = function() {};
+}
+
+function drainQueue() {
+  if (!turnQueue.length) {
+    isReplaying = false;
+    renderAll();
+    return;
+  }
+  const data = turnQueue.shift();
+  processTurn(data);
+  renderAll();
+  const delay = data.record_type === 'match_summary' ? 200 : 50;
+  setTimeout(drainQueue, delay);
+}
+
+// Init
+renderBoard();
+renderAll();
+
+isReplaying = true;
+turnQueue = [];
+startSSE();
+
+setTimeout(() => {
+  if (turnQueue.length > 0) {
+    drainQueue();
+  } else {
+    isReplaying = false;
+  }
+}, 300);
+</script>
+</body>
+</html>"""
+
+
 # ── Bracket HTML/CSS/JS ───────────────────────────────────────────
 
 BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
@@ -3436,10 +4246,10 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble"}.get(event_type, event_type)
+        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four"}.get(event_type, event_type)
         print(f"{label} Web Spectator")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")

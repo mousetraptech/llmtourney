@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "action": { "type": "string", "enum": ["play"] },
+    "column": { "type": "integer", "minimum": 0, "maximum": 6 },
+    "reasoning": { "type": "string" }
+  },
+  "required": ["action", "column"],
+  "additionalProperties": false
+}

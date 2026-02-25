@@ -35,6 +35,7 @@ from llmtourney.events.holdem.strategies import (
 from llmtourney.events.checkers.engine import CheckersEvent
 from llmtourney.events.scrabble.engine import ScrabbleEvent
 from llmtourney.events.tictactoe.engine import TicTacToeEvent
+from llmtourney.events.connectfour.engine import ConnectFourEvent
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -219,6 +220,8 @@ class TournamentEngine:
             return ScrabbleEvent()
         if event_name == "tictactoe":
             return TicTacToeEvent(games_per_match=event_cfg.games_per_match)
+        if event_name == "connectfour":
+            return ConnectFourEvent(games_per_match=event_cfg.games_per_match)
         raise ValueError(f"Unknown event: {event_name!r}")
 
     # ------------------------------------------------------------------
