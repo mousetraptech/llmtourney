@@ -207,13 +207,13 @@ class TestBracketRun:
 
         # Mock _run_match to return predictable results
         # Higher seed (lower number) always wins
-        def fake_run_match(event_name, event_cfg, model_a, model_b):
+        def fake_run_match(event_name, event_cfg, model_a, model_b, match_id=None):
             # Extract seed number from model name
             seed_a = int(model_a.split("-")[1])
             seed_b = int(model_b.split("-")[1])
             winner_is_a = seed_a < seed_b
             return MatchResult(
-                match_id=f"test-{model_a}-vs-{model_b}",
+                match_id=match_id or f"test-{model_a}-vs-{model_b}",
                 event=event_name,
                 scores={
                     "player_a": 3.0 if winner_is_a else 1.0,

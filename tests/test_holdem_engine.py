@@ -381,3 +381,53 @@ def _play_call_down_hand(game: HoldemEvent) -> None:
             game.apply_action(player, action)
         else:
             game.apply_action(player, {"action": "fold"})
+
+
+class TestBlindEscalation:
+    def test_blinds_escalate_per_schedule(self):
+        schedule = [(1, 1, 2), (3, 2, 4), (5, 4, 8)]
+        game = HoldemEvent(
+            hands_per_match=10, starting_stack=200,
+            blinds=(1, 2), blind_schedule=schedule,
+        )
+        game.reset(seed=42)
+
+        # Hand 1: base blinds 1/2
+        snap = game.get_state_snapshot()
+        assert snap["blinds"] == [1, 2]
+        assert snap["pot"] == 3
+
+    def test_blinds_increase_at_threshold(self):
+        schedule = [(1, 1, 2), (3, 4, 8)]
+        game = HoldemEvent(
+            hands_per_match=10, starting_stack=200,
+            blinds=(1, 2), blind_schedule=schedule,
+        )
+        game.reset(seed=42)
+
+        # Play through hands 1-2 (blinds 1/2), then hand 3 should be 4/8
+        for _ in range(200):
+            if game.is_terminal():
+                break
+            snap = game.get_state_snapshot()
+            if snap["hand_number"] >= 3:
+                assert snap["blinds"] == [4, 8], f"Hand {snap['hand_number']}: blinds should be [4,8] got {snap['blinds']}"
+                break
+            player = game.current_player()
+            game.apply_action(player, {"action": "fold"})
+
+    def test_no_schedule_uses_static_blinds(self):
+        game = HoldemEvent(
+            hands_per_match=10, starting_stack=200, blinds=(5, 10),
+        )
+        game.reset(seed=42)
+        snap = game.get_state_snapshot()
+        assert snap["blinds"] == [5, 10]
+        assert snap["pot"] == 15
+
+    def test_snapshot_includes_blinds(self):
+        game = HoldemEvent(hands_per_match=10, starting_stack=200, blinds=(1, 2))
+        game.reset(seed=42)
+        snap = game.get_state_snapshot()
+        assert "blinds" in snap
+        assert snap["blinds"] == [1, 2]

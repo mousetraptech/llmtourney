@@ -1,0 +1,65 @@
+tournament:
+  name: "holdem-budget-bracket"
+  seed: 42
+  format: bracket
+  version: "0.1.0"
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  haiku-3.5:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  gemini-2.0-flash:
+    provider: openrouter
+    model_id: google/gemini-2.0-flash-001
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  mistral-small:
+    provider: openrouter
+    model_id: mistralai/mistral-small-3.1-24b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  deepseek-v3:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  nova-lite:
+    provider: openrouter
+    model_id: amazon/nova-lite-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  qwen3-80b:
+    provider: openrouter
+    model_id: qwen/qwen3-next-80b-a3b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 50
+    starting_stack: 200
+    blinds: [1, 2]
+    blind_schedule:
+      16: [2, 4]
+      26: [4, 8]
+      36: [8, 16]
+      46: [16, 32]
+shot_clock:
+  default_ms: 30000
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0

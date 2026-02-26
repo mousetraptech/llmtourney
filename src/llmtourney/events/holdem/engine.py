@@ -65,10 +65,13 @@ class HoldemEvent(Event):
         hands_per_match: int = 100,
         starting_stack: int = 200,
         blinds: tuple[int, int] = (1, 2),
+        blind_schedule: list[tuple[int, int, int]] | None = None,
     ) -> None:
         self._hands_per_match = hands_per_match
         self._starting_stack = starting_stack
+        self._base_blinds = blinds
         self._blinds = blinds
+        self._blind_schedule = blind_schedule  # [(hand, small, big), ...]
 
         # Load action schema
         schema_path = Path(__file__).parent / "schema.json"
@@ -280,6 +283,7 @@ class HoldemEvent(Event):
             "dealer": self._dealer,
             "active_player": self._active_player,
             "terminal": self._terminal,
+            "blinds": list(self._blinds),
         }
 
     @property
@@ -308,6 +312,19 @@ class HoldemEvent(Event):
     # Hand lifecycle
     # ------------------------------------------------------------------
 
+    def _resolve_blinds(self, hand_number: int) -> tuple[int, int]:
+        """Return (small, big) blinds for the given hand number."""
+        if not self._blind_schedule:
+            return self._base_blinds
+        # Find the highest schedule entry <= hand_number
+        result = self._base_blinds
+        for threshold, sb, bb in self._blind_schedule:
+            if hand_number >= threshold:
+                result = (sb, bb)
+            else:
+                break
+        return result
+
     def _start_new_hand(self) -> None:
         """Set up a new hand: shuffle deck, post blinds, deal hole cards."""
         self._hand_number += 1
@@ -330,6 +347,9 @@ class HoldemEvent(Event):
         self._deck = list(FULL_DECK)
         self._rng.shuffle(self._deck)
         self._deck_idx = 0
+
+        # Resolve blinds for this hand (escalation)
+        self._blinds = self._resolve_blinds(self._hand_number)
 
         # Reset per-hand state
         self._street = Street.PREFLOP

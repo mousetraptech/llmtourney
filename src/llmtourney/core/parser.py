@@ -19,6 +19,30 @@ from llmtourney.core.sanitizer import detect_injection
 # Regex to find JSON objects in text — matches outermost { ... }
 _JSON_OBJECT_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}")
 
+# Strip markdown code fences: ```json ... ``` or ``` ... ```
+_MARKDOWN_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
+
+
+def _recover_braces(text: str) -> str | None:
+    """Try to recover JSON from text missing opening/closing braces.
+
+    Handles cases like:
+      "reasoning": "...", "action": "fold"    (missing { and })
+      "reasoning": "...", "action": "fold"}   (missing {)
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    # Missing opening brace: text starts with a JSON key
+    if stripped[0] == '"' and "action" in stripped:
+        candidate = "{" + stripped
+        if not candidate.rstrip().endswith("}"):
+            candidate = candidate.rstrip() + "}"
+        return candidate
+
+    return None
+
 
 @dataclass(frozen=True)
 class ParseResult:
@@ -41,7 +65,16 @@ class ActionParser:
     def parse(self, raw_text: str, schema: dict) -> ParseResult:
         injection = detect_injection(raw_text)
 
-        candidates = _JSON_OBJECT_RE.findall(raw_text)
+        # Strip markdown code fences before extraction
+        cleaned = _MARKDOWN_FENCE_RE.sub(r"\1", raw_text)
+
+        candidates = _JSON_OBJECT_RE.findall(cleaned)
+
+        # Recovery: if no JSON object found, try fixing missing braces
+        if not candidates:
+            recovered = _recover_braces(cleaned)
+            if recovered:
+                candidates = _JSON_OBJECT_RE.findall(recovered)
 
         if not candidates:
             return ParseResult(
@@ -58,9 +91,14 @@ class ActionParser:
         for candidate in candidates:
             try:
                 parsed = json.loads(candidate)
-            except json.JSONDecodeError as e:
-                last_error = f"JSON parse error: {e}"
-                continue
+            except json.JSONDecodeError:
+                # Retry with newlines collapsed — handles LLMs that put
+                # literal newlines inside JSON string values
+                try:
+                    parsed = json.loads(candidate.replace("\n", " "))
+                except json.JSONDecodeError as e:
+                    last_error = f"JSON parse error: {e}"
+                    continue
 
             if not isinstance(parsed, dict):
                 last_error = "JSON value is not an object"

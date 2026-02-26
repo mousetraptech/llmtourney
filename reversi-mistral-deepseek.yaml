@@ -1,0 +1,22 @@
+tournament:
+  name: "reversi-mistral-deepseek"
+  seed: 42
+  version: "0.1.0"
+models:
+  mistral-small:
+    provider: openrouter
+    model_id: mistralai/mistral-small-3.1-24b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  deepseek-v3:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  reversi:
+    weight: 1
+    games_per_match: 9
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 60.0

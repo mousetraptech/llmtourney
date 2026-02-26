@@ -1,0 +1,22 @@
+tournament:
+  name: "tictactoe-s4"
+  seed: 137
+  version: "0.1.0"
+models:
+  gpt-5:
+    provider: openai
+    model_id: gpt-5
+    api_key_env: OPENAI_API_KEY
+    temperature: 1.0
+  opus-4-6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4-6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  tictactoe:
+    weight: 1
+    games_per_match: 9
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 300.0

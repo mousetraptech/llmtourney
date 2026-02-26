@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Checkers Action",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["move"]
+    },
+    "from": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0, "maximum": 7 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Origin square as [row, col], 0-indexed"
+    },
+    "to": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0, "maximum": 7 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Destination square as [row, col], 0-indexed"
+    },
+    "path": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "description": "Multi-jump waypoints as [[r1,c1], [r2,c2], ...]"
+    },
+    "reasoning": {
+      "type": "string"
+    }
+  },
+  "required": ["action", "from", "to"],
+  "additionalProperties": false
+}

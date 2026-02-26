@@ -1,0 +1,22 @@
+tournament:
+  name: "reversi-semi1"
+  seed: 42
+  version: "0.1.0"
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  haiku-3.5:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  reversi:
+    weight: 1
+    games_per_match: 9
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 60.0

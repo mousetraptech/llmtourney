@@ -1,0 +1,25 @@
+tournament:
+  name: "checkers-s7"
+  seed: 77
+  version: "0.1.0"
+
+models:
+  qwen3-next-80b:
+    provider: openrouter
+    model_id: qwen/qwen3-next-80b-a3b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  mixtral-8x22b:
+    provider: openrouter
+    model_id: mistralai/mixtral-8x22b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  checkers:
+    weight: 1
+    games_per_match: 3
+
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 120.0

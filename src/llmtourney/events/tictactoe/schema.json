@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tic-Tac-Toe Action",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["play"]
+    },
+    "position": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0, "maximum": 2 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Board position as [row, col], 0-indexed"
+    },
+    "reasoning": {
+      "type": "string"
+    }
+  },
+  "required": ["action", "position"],
+  "additionalProperties": false
+}

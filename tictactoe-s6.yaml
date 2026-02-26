@@ -1,0 +1,22 @@
+tournament:
+  name: "tictactoe-s6"
+  seed: 55
+  version: "0.1.0"
+models:
+  deepseek-v3.2:
+    provider: openrouter
+    model_id: deepseek/deepseek-v3.2
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  llama-4-maverick:
+    provider: openrouter
+    model_id: meta-llama/llama-4-maverick
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  tictactoe:
+    weight: 1
+    games_per_match: 9
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 30.0

@@ -1,0 +1,25 @@
+tournament:
+  name: "scrabble-s2"
+  seed: 77
+  version: "0.1.0"
+
+models:
+  nova-pro:
+    provider: openrouter
+    model_id: amazon/nova-pro-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  scrabble:
+    weight: 3
+    rounds: 1
+
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 60.0

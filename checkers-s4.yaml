@@ -1,0 +1,25 @@
+tournament:
+  name: "checkers-s4"
+  seed: 42
+  version: "0.1.0"
+
+models:
+  palmyra-x5:
+    provider: openrouter
+    model_id: writer/palmyra-x5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  mistral-small:
+    provider: openrouter
+    model_id: mistralai/mistral-small-3.1-24b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  checkers:
+    weight: 1
+    games_per_match: 3
+
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 120.0

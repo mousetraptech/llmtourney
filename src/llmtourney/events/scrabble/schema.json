@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scrabble Action",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["play", "exchange", "pass"]
+    },
+    "word": {
+      "type": "string",
+      "description": "The full word being formed (for play action)"
+    },
+    "position": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Starting position as [row, col], 0-indexed"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["across", "down"]
+    },
+    "blank_assignments": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Maps 0-indexed position in word (as string) to the letter the blank represents"
+    },
+    "tiles_to_exchange": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Letters to exchange (use '?' for blank tiles)"
+    },
+    "reasoning": {
+      "type": "string"
+    }
+  },
+  "required": ["action"],
+  "allOf": [
+    {
+      "if": { "properties": { "action": { "const": "play" } } },
+      "then": { "required": ["action", "word", "position", "direction"] }
+    },
+    {
+      "if": { "properties": { "action": { "const": "exchange" } } },
+      "then": { "required": ["action", "tiles_to_exchange"] }
+    }
+  ],
+  "additionalProperties": false
+}

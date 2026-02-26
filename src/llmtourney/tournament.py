@@ -36,6 +36,7 @@ from llmtourney.events.checkers.engine import CheckersEvent
 from llmtourney.events.scrabble.engine import ScrabbleEvent
 from llmtourney.events.tictactoe.engine import TicTacToeEvent
 from llmtourney.events.connectfour.engine import ConnectFourEvent
+from llmtourney.events.reversi.engine import ReversiEvent
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -215,6 +216,7 @@ class TournamentEngine:
                 hands_per_match=event_cfg.hands_per_match,
                 starting_stack=event_cfg.starting_stack,
                 blinds=event_cfg.blinds,
+                blind_schedule=event_cfg.blind_schedule,
             )
         if event_name == "scrabble":
             return ScrabbleEvent()
@@ -222,6 +224,8 @@ class TournamentEngine:
             return TicTacToeEvent(games_per_match=event_cfg.games_per_match)
         if event_name == "connectfour":
             return ConnectFourEvent(games_per_match=event_cfg.games_per_match)
+        if event_name == "reversi":
+            return ReversiEvent(games_per_match=event_cfg.games_per_match)
         raise ValueError(f"Unknown event: {event_name!r}")
 
     def _get_time_limit_ms(self, model_name: str) -> int | None:
@@ -241,10 +245,12 @@ class TournamentEngine:
         event_cfg: EventConfig,
         model_a: str,
         model_b: str,
+        match_id: str | None = None,
     ) -> MatchResult:
         """Execute a single match between two models."""
-        short_id = uuid.uuid4().hex[:6]
-        match_id = f"{event_name}-{model_a}-vs-{model_b}-{short_id}"
+        if match_id is None:
+            short_id = uuid.uuid4().hex[:6]
+            match_id = f"{event_name}-{model_a}-vs-{model_b}-{short_id}"
         deterministic_key = f"{event_name}-{model_a}-vs-{model_b}"
         seed = self.seed_mgr.get_match_seed(
             event_name, 1, hash(deterministic_key) % 10000

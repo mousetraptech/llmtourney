@@ -1,0 +1,25 @@
+tournament:
+  name: "checkers-s2"
+  seed: 77
+  version: "0.1.0"
+
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  nova-flash:
+    provider: openrouter
+    model_id: amazon/nova-lite-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  checkers:
+    weight: 1
+    games_per_match: 3
+
+compute_caps:
+  max_output_tokens: 1024
+  timeout_s: 60.0

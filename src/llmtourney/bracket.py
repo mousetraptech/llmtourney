@@ -174,15 +174,30 @@ class BracketRunner:
             print(f"  {label} (Round {round_num}/{self.num_rounds})")
             print(f"{'='*50}")
 
+            # Pre-generate match_ids so manifest can be written before round starts
+            for bm in current_matchups:
+                short_id = uuid.uuid4().hex[:6]
+                bm.match_id = f"{self.event_name}-{bm.model_a}-vs-{bm.model_b}-{short_id}"
+
+            # Write manifest with in-progress round before matches start
+            round_data = {
+                "round": round_num,
+                "label": label,
+                "status": "in_progress",
+                "matches": [self._match_to_dict(bm) for bm in current_matchups],
+            }
+            self.rounds.append(round_data)
+            self._write_manifest()
+
             self._run_round(current_matchups)
 
-            round_data = {
+            # Update round status to complete with final scores
+            self.rounds[-1] = {
                 "round": round_num,
                 "label": label,
                 "status": "complete",
                 "matches": [self._match_to_dict(bm) for bm in current_matchups],
             }
-            self.rounds.append(round_data)
             self._write_manifest()
 
             # Build next round from winners
@@ -215,13 +230,13 @@ class BracketRunner:
                     self.event_cfg,
                     bm.model_a,
                     bm.model_b,
+                    bm.match_id,
                 ): bm
                 for bm in matchups
             }
             for future in as_completed(futures):
                 bm = futures[future]
                 result = future.result()
-                bm.match_id = result.match_id
                 bm.scores = {
                     "player_a": result.scores.get("player_a", 0.0),
                     "player_b": result.scores.get("player_b", 0.0),

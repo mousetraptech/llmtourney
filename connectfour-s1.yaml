@@ -1,0 +1,22 @@
+tournament:
+  name: "connectfour-s1"
+  seed: 42
+  version: "0.1.0"
+models:
+  haiku:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  connectfour:
+    weight: 1
+    games_per_match: 9
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 30.0

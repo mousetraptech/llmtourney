@@ -1,0 +1,38 @@
+tournament:
+  name: "flyweight-four"
+  seed: 99
+  version: "0.1.0"
+
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  nova-micro:
+    provider: openrouter
+    model_id: amazon/nova-micro-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  haiku:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  gemini-flash:
+    provider: openrouter
+    model_id: google/gemini-flash-1.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  holdem:
+    weight: 3
+    hands_per_match: 20
+    starting_stack: 200
+    blinds: [1, 2]
+    rounds: 1
+
+compute_caps:
+  max_output_tokens: 256
+  timeout_s: 30.0

@@ -27,6 +27,7 @@ class EventConfig:
     hands_per_match: int = 100
     starting_stack: int = 200
     blinds: tuple[int, int] = (1, 2)
+    blind_schedule: list[tuple[int, int, int]] | None = None  # [(hand, small, big), ...]
     rounds: int = 1
     games_per_match: int = 9
 
@@ -95,12 +96,20 @@ def load_config(path: Path) -> TournamentConfig:
     events = {}
     for name, e in raw.get("events", {}).items():
         blinds = tuple(e["blinds"]) if "blinds" in e else (1, 2)
+        # Parse blind schedule: {hand_number: [small, big], ...}
+        blind_schedule = None
+        bs_raw = e.get("blind_schedule")
+        if bs_raw:
+            blind_schedule = sorted(
+                (int(hand), sb, bb) for hand, (sb, bb) in bs_raw.items()
+            )
         events[name] = EventConfig(
             name=name,
             weight=e["weight"],
             hands_per_match=e.get("hands_per_match", 100),
             starting_stack=e.get("starting_stack", 200),
             blinds=blinds,
+            blind_schedule=blind_schedule,
             rounds=e.get("rounds", 1),
             games_per_match=e.get("games_per_match", 9),
         )
@@ -123,7 +132,7 @@ def load_config(path: Path) -> TournamentConfig:
             match_forfeit_threshold=fe_raw.get("match_forfeit_threshold", 3),
             strike_violations=fe_raw.get(
                 "strike_violations",
-                ["timeout", "malformed_json", "empty_response"],
+                ["timeout", "empty_response"],
             ),
         )
 

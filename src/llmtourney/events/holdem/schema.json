@@ -8,7 +8,7 @@
       "enum": ["fold", "call", "raise"]
     },
     "amount": {
-      "type": "integer",
+      "type": ["integer", "null"],
       "minimum": 0
     },
     "reasoning": {

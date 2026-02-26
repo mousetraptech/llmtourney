@@ -1,0 +1,22 @@
+tournament:
+  name: "tictactoe-s9"
+  seed: 88
+  version: "0.1.0"
+models:
+  grok-4.1-fast:
+    provider: openrouter
+    model_id: x-ai/grok-4.1-fast
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  kimi-k2-thinking:
+    provider: openrouter
+    model_id: moonshotai/kimi-k2-thinking
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  tictactoe:
+    weight: 1
+    games_per_match: 9
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 120.0
