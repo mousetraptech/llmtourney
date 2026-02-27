@@ -1,9 +1,8 @@
 """Tests for MongoSink — background MongoDB writer with queue."""
 
 import hashlib
-import time
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -61,7 +60,7 @@ def _make_context(
 @pytest.fixture
 def mock_client_class():
     """Patch pymongo.MongoClient and return (MongoSink class, mock_client_instance)."""
-    with patch("llmtourney.core.mongo_sink.MongoClient") as MockClientClass:
+    with patch("pymongo.MongoClient") as MockClientClass:
         mock_client = MagicMock()
         MockClientClass.return_value = mock_client
         # Successful ping
@@ -85,7 +84,7 @@ class TestMongoSinkInit:
         sink.close()
 
     def test_disabled_when_connection_fails(self):
-        with patch("llmtourney.core.mongo_sink.MongoClient") as MockClientClass:
+        with patch("pymongo.MongoClient") as MockClientClass:
             mock_client = MagicMock()
             MockClientClass.return_value = mock_client
             # Simulate connection failure
@@ -98,7 +97,7 @@ class TestMongoSinkInit:
             sink.close()
 
     def test_disabled_when_server_selection_timeout(self):
-        with patch("llmtourney.core.mongo_sink.MongoClient") as MockClientClass:
+        with patch("pymongo.MongoClient") as MockClientClass:
             mock_client = MagicMock()
             MockClientClass.return_value = mock_client
             from pymongo.errors import ServerSelectionTimeoutError
@@ -153,13 +152,13 @@ class TestLogTurn:
         docs = insert_calls[0][0][0]
         doc = docs[0]
 
-        # Prompt should be replaced with hash/chars/tokens
-        assert "prompt" not in doc or not isinstance(doc["prompt"], str)
-        assert doc["prompt"]["prompt_hash"] == hashlib.sha256(
+        # Prompt should be replaced with flat hash/chars/tokens fields
+        assert "prompt" not in doc
+        assert doc["prompt_hash"] == hashlib.sha256(
             "This is a long prompt".encode()
         ).hexdigest()
-        assert doc["prompt"]["prompt_chars"] == len("This is a long prompt")
-        assert doc["prompt"]["prompt_tokens"] == 50  # input_tokens
+        assert doc["prompt_chars"] == len("This is a long prompt")
+        assert doc["prompt_tokens"] == 50  # input_tokens
 
     def test_prompt_included_when_store_prompts_true(self, mock_client_class):
         MongoSink, mock_client, mock_db, mock_col = mock_client_class
@@ -179,7 +178,7 @@ class TestLogTurn:
         assert doc["prompt"] == "Full prompt text here"
 
     def test_noop_when_disabled(self):
-        with patch("llmtourney.core.mongo_sink.MongoClient") as MockClientClass:
+        with patch("pymongo.MongoClient") as MockClientClass:
             mock_client = MagicMock()
             MockClientClass.return_value = mock_client
             from pymongo.errors import ConnectionFailure

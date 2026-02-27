@@ -15,9 +15,6 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
-from pymongo import MongoClient, ASCENDING
-from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
-
 from llmtourney.core.telemetry import TelemetryEntry
 
 logger = logging.getLogger(__name__)
@@ -48,10 +45,14 @@ class MongoSink:
         self._store_prompts = store_prompts
         self._disabled = False
         self._closed = False
+        self._client = None
         self._queue: queue.Queue = queue.Queue()
 
         # Attempt connection
         try:
+            from pymongo import MongoClient
+            from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
+
             self._client = MongoClient(uri, serverSelectionTimeoutMS=5000)
             self._client.admin.command("ping")
         except (ConnectionFailure, ServerSelectionTimeoutError, PyMongoError) as exc:
@@ -71,7 +72,9 @@ class MongoSink:
         self._ensure_indexes()
 
         # Start background writer thread
-        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self._thread = threading.Thread(
+            target=self._writer_loop, daemon=True, name="mongo-sink-writer",
+        )
         self._thread.start()
 
     # ------------------------------------------------------------------
@@ -112,12 +115,10 @@ class MongoSink:
 
         # Handle prompt based on store_prompts flag
         if not self._store_prompts:
-            prompt_text = doc["prompt"]
-            doc["prompt"] = {
-                "prompt_hash": hashlib.sha256(prompt_text.encode()).hexdigest(),
-                "prompt_chars": len(prompt_text),
-                "prompt_tokens": entry.input_tokens,
-            }
+            prompt_text = doc.pop("prompt")
+            doc["prompt_hash"] = hashlib.sha256(prompt_text.encode()).hexdigest()
+            doc["prompt_chars"] = len(prompt_text)
+            doc["prompt_tokens"] = entry.input_tokens
 
         self._queue.put(("turn", "turns", doc))
 
@@ -166,7 +167,7 @@ class MongoSink:
             event_type = tournament_context.get("event_type", "unknown")
 
             stat_update: dict[str, Any] = {
-                "filter": {"model_id": model_id},
+                "filter": {"_id": model_id},
                 "inc": {
                     "total_matches": 1,
                     "wins": 1 if is_winner else 0,
@@ -182,7 +183,7 @@ class MongoSink:
                     "last_played": datetime.now(timezone.utc),
                 },
             }
-            self._queue.put(("model_stat", "model_stats", stat_update))
+            self._queue.put(("model_stat", "models", stat_update))
 
     def close(self) -> None:
         """Send sentinel, drain remaining items, join background thread."""
@@ -193,6 +194,9 @@ class MongoSink:
         if not self._disabled:
             self._queue.put(_SENTINEL)
         self._thread.join(timeout=10)
+
+        if self._client:
+            self._client.close()
 
     # ------------------------------------------------------------------
     # Internal: background writer
@@ -245,6 +249,8 @@ class MongoSink:
 
     def _flush_batch(self, batch: list[tuple[str, str, dict]]) -> None:
         """Group items by type and write to MongoDB."""
+        from pymongo.errors import PyMongoError
+
         # Group turns by collection for insert_many
         turns_by_collection: dict[str, list[dict]] = {}
         matches: list[dict] = []
@@ -280,7 +286,7 @@ class MongoSink:
         # Write model stats with $inc upsert
         for stat in model_stats:
             try:
-                self._db["model_stats"].update_one(
+                self._db["models"].update_one(
                     stat["filter"],
                     {
                         "$inc": stat["inc"],
@@ -297,6 +303,9 @@ class MongoSink:
 
     def _ensure_indexes(self) -> None:
         """Create indexes for efficient querying."""
+        from pymongo import ASCENDING
+        from pymongo.errors import PyMongoError
+
         try:
             turns = self._db["turns"]
             turns.create_index("match_id")
