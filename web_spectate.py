@@ -66,6 +66,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "holdem"
     if stem.startswith("reversi"):
         return "reversi"
+    if stem.startswith("bullshit"):
+        return "bullshit"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -4404,6 +4406,795 @@ setInterval(function() {
 </html>"""
 
 
+# ── Bullshit HTML/CSS/JS ──────────────────────────────────────────
+
+BULLSHIT_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bullshit Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #d29922;
+  --pe: #f97583;
+  --pf: #79c0ff;
+  --pg: #ffa657;
+  --ph: #b392f0;
+  --pi: #56d4dd;
+  --pj: #e3b341;
+  --felt: #1a3a1a;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 16px; font-weight: bold; }
+.player-a { color: var(--pa); }
+.player-b { color: var(--pb); }
+.player-c { color: var(--pc); }
+.player-d { color: var(--pd); }
+.player-e { color: var(--pe); }
+.player-f { color: var(--pf); }
+.player-g { color: var(--pg); }
+.player-h { color: var(--ph); }
+.player-i { color: var(--pi); }
+.player-j { color: var(--pj); }
+#header .sub { margin-top: 4px; color: var(--dim); }
+#header .target-rank {
+  display: inline-block;
+  background: var(--yellow);
+  color: #000;
+  padding: 2px 12px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 14px;
+  margin-left: 8px;
+}
+
+/* Hero action panel */
+#hero {
+  background: var(--surface);
+  border: 2px solid var(--yellow);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  text-align: center;
+  min-height: 60px;
+  transition: border-color 0.3s;
+}
+#hero.truth { border-color: var(--green); }
+#hero.lie { border-color: var(--red); }
+#hero .action-line { font-size: 15px; font-weight: bold; margin-bottom: 4px; }
+#hero .detail-line { font-size: 12px; color: var(--dim); }
+#hero .truth-tag { color: var(--green); font-weight: bold; }
+#hero .lie-tag { color: var(--red); font-weight: bold; }
+#hero .challenge-result { margin-top: 6px; font-size: 13px; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+#hero .action-line { animation: fadeIn 0.3s ease-out; }
+
+/* Player panels strip — columns set dynamically via JS */
+#players {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.player-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.3s;
+}
+.player-panel.active { border-color: var(--green); border-width: 2px; }
+.player-panel.challenging { border-color: var(--yellow); border-width: 2px; border-style: dashed; }
+.player-panel.challenging .model-name::after { content: '  DECIDING...'; font-size: 10px; color: var(--yellow); font-weight: normal; letter-spacing: 1px; }
+.player-panel.eliminated { opacity: 0.5; }
+.player-panel .model-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+.player-panel .card-count { font-size: 18px; font-weight: bold; margin: 4px 0; }
+.player-panel .hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 6px 0;
+  min-height: 24px;
+}
+.card-pill {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.card-pill.red { color: var(--red); }
+.card-pill.black { color: var(--text); }
+.card-pill.match-rank { outline: 2px solid var(--yellow); background: rgba(210,153,34,0.15); }
+.player-panel .stats { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.player-panel .stats .caught { color: var(--red); }
+.player-panel .out-overlay {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--red);
+  text-align: center;
+  padding: 8px;
+}
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* History feed */
+#history .entry { padding: 3px 0; font-size: 12px; border-bottom: 1px solid #21262d; }
+#history .entry:last-child { border-bottom: none; }
+.entry .truth { color: var(--green); font-weight: bold; }
+.entry .lie { color: var(--red); font-weight: bold; }
+.entry .unchallenged { color: var(--yellow); }
+.entry .caught { color: var(--green); font-weight: bold; }
+.entry .wrong-call { color: var(--red); font-weight: bold; }
+
+/* Reasoning panel */
+#reasoning-panel { cursor: pointer; }
+#reasoning-panel .content { max-height: 60px; overflow: hidden; transition: max-height 0.3s; }
+#reasoning-panel.expanded .content { max-height: 300px; }
+
+/* Final panel */
+#final-panel { display: none; text-align: center; border-color: var(--yellow); }
+#final-panel.show { display: block; }
+#final-panel .winner { font-size: 20px; font-weight: bold; margin: 8px 0; }
+#final-panel .standings { font-size: 13px; margin: 6px 0; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--green); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
+
+/* Footer */
+#footer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* Compact mode */
+body.compact { padding: 4px; font-size: 11px; }
+body.compact #header { padding: 6px 10px; margin-bottom: 6px; }
+body.compact #header .title { font-size: 13px; }
+body.compact #hero { padding: 8px 12px; margin-bottom: 6px; min-height: 40px; }
+body.compact #hero .action-line { font-size: 12px; }
+body.compact .player-panel { padding: 6px 8px; }
+body.compact .player-panel .card-count { font-size: 14px; }
+body.compact .card-pill { font-size: 9px; padding: 0 3px; }
+body.compact #reasoning-panel { display: none; }
+body.compact .panel { padding: 6px 10px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div id="header">
+  <span id="badge" class="badge badge-live">LIVE</span>
+  <span class="title" id="matchup">Loading...</span>
+  <div class="sub" id="sub-info"></div>
+</div>
+
+<div id="hero">
+  <div style="display:flex;align-items:center;justify-content:center;gap:18px">
+    <div style="flex:1;text-align:center">
+      <div class="action-line" id="hero-action">Waiting for first play...</div>
+      <div class="detail-line" id="hero-detail"></div>
+      <div class="challenge-result" id="hero-challenge"></div>
+    </div>
+    <div id="pile-indicator" style="text-align:center;min-width:70px">
+      <div style="font-size:28px;font-weight:bold;color:var(--yellow)" id="pile-count">0</div>
+      <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">pile</div>
+    </div>
+  </div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
+</div>
+
+<div id="players"></div>
+
+<div class="panel" id="history-panel">
+  <h3>Action History</h3>
+  <div id="history"><span style="color:var(--dim);font-style:italic">No plays yet</span></div>
+</div>
+
+<div class="panel" id="reasoning-panel" onclick="this.classList.toggle('expanded')">
+  <h3>Reasoning (click to expand)</h3>
+  <div class="content" id="reasoning-content"><span style="color:var(--dim);font-style:italic">Waiting...</span></div>
+</div>
+
+<div class="panel" id="final-panel">
+  <h3>Final Results</h3>
+  <div id="final-content"></div>
+</div>
+
+<div id="footer">
+  <span id="status-text"><span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...</span>
+  <span>Discard: <span id="discard-count">0</span> | Turns: <span id="turn-count">0</span></span>
+</div>
+
+<script>
+var RANK_NAMES = {A:'Aces','2':'Twos','3':'Threes','4':'Fours','5':'Fives','6':'Sixes','7':'Sevens','8':'Eights','9':'Nines','10':'Tens',J:'Jacks',Q:'Queens',K:'Kings'};
+
+// Dynamic player setup — initialized from first state snapshot
+var PIDS = [];
+var LABELS = {};
+var SUFFIXES = {};
+var COLORS = {};
+var CLASS_NAMES = {};
+var _playersInitialized = false;
+var _ALL_SUFFIXES = 'abcdefghij'.split('');
+
+function initPlayers(cardCounts) {
+  if (_playersInitialized) return;
+  PIDS = Object.keys(cardCounts).sort();
+  PIDS.forEach(function(pid) {
+    var suf = pid.replace('player_', '');
+    SUFFIXES[pid] = suf;
+    LABELS[pid] = suf.toUpperCase();
+    CLASS_NAMES[pid] = 'player-' + suf;
+    COLORS[pid] = 'var(--p' + suf + ')';
+  });
+
+  // Set grid columns
+  var cols = PIDS.length <= 4 ? PIDS.length : Math.ceil(PIDS.length / 2);
+  document.getElementById('players').style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+
+  // Generate player panel HTML
+  var html = '';
+  PIDS.forEach(function(pid) {
+    var suf = SUFFIXES[pid];
+    var cls = CLASS_NAMES[pid];
+    html += '<div class="player-panel" id="panel-' + suf + '">'
+      + '<div class="model-name ' + cls + '" id="name-' + suf + '">Player ' + LABELS[pid] + '</div>'
+      + '<div class="card-count" id="count-' + suf + '">0</div>'
+      + '<div class="hand" id="hand-' + suf + '"></div>'
+      + '<div class="stats" id="stats-' + suf + '"></div>'
+      + '</div>';
+  });
+  document.getElementById('players').innerHTML = html;
+
+  // Initialize S per-player maps
+  var empty = {};
+  PIDS.forEach(function(pid) {
+    S.models[pid] = S.models[pid] || '';
+    S.cardCounts[pid] = S.cardCounts[pid] || 0;
+    S.hands[pid] = S.hands[pid] || [];
+    S.matchScores[pid] = S.matchScores[pid] || 0;
+    S.violations[pid] = S.violations[pid] || 0;
+    S.shotClock.strikes[pid] = S.shotClock.strikes[pid] || 0;
+  });
+
+  _playersInitialized = true;
+}
+
+var S = {
+  models: {},
+  gameNumber: 1,
+  gamesPerMatch: 1,
+  turnNumber: 0,
+  phase: 'play',
+  targetRank: 'A',
+  currentPlayer: '',
+  cardCounts: {},
+  hands: {},
+  discardPileSize: 0,
+  history: [],
+  finishOrder: [],
+  eliminated: [],
+  matchScores: {},
+  playerStats: {},
+  lastPlay: null,
+  lastPlayPlayer: '',
+  finished: false,
+  finalScores: {},
+  violations: {},
+  turnCount: 0,
+  lastReasoning: '',
+  lastModel: '',
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: {}, strikeLimit: null, waitingOn: '' }
+};
+
+var rawLines = [];
+var turnQueue = [];
+var isReplaying = false;
+
+// Compact mode
+if (new URLSearchParams(window.location.search).get('compact') === '1') {
+  document.body.classList.add('compact');
+}
+
+function processTurn(data) {
+  rawLines.push(data);
+
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    var pm = data.player_models || {};
+    PIDS.forEach(function(pid) { if (pm[pid]) S.models[pid] = pm[pid]; });
+    return;
+  }
+
+  S.turnCount++;
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  // Initialize players from first snapshot
+  if (snap.card_counts && !_playersInitialized) {
+    initPlayers(snap.card_counts);
+  }
+
+  if (pid && mid) S.models[pid] = mid;
+
+  // Shot clock tracking
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined && pid) S.shotClock.strikes[pid] = data.cumulative_strikes;
+  S.shotClock.lastTurnTime = Date.now();
+  S.shotClock.waitingOn = (snap.current_player || S.currentPlayer);
+
+  S.gameNumber = snap.game_number || S.gameNumber;
+  S.gamesPerMatch = snap.games_per_match || S.gamesPerMatch;
+  S.turnNumber = snap.turn_number || S.turnNumber;
+  S.phase = snap.phase || S.phase;
+  S.targetRank = snap.target_rank || S.targetRank;
+  S.currentPlayer = snap.current_player || S.currentPlayer;
+  S.cardCounts = snap.card_counts || S.cardCounts;
+  S.hands = snap.hands || S.hands;
+  S.discardPileSize = snap.discard_pile_size || 0;
+  S.history = snap.history || S.history;
+  S.finishOrder = snap.finish_order || S.finishOrder;
+  S.eliminated = snap.eliminated || S.eliminated;
+  S.matchScores = snap.match_scores || S.matchScores;
+  S.playerStats = snap.player_stats || S.playerStats;
+  S.lastPlay = snap.last_play || S.lastPlay;
+  if (S.lastPlay && S.lastPlay.player) S.lastPlayPlayer = S.lastPlay.player;
+
+  var reasoning = data.reasoning_output || '';
+  if (reasoning) {
+    S.lastReasoning = reasoning.length > 200 ? reasoning.substring(0, 197) + '...' : reasoning;
+    S.lastModel = mid;
+  }
+
+  if (data.violation && pid) {
+    S.violations[pid] = (S.violations[pid] || 0) + 1;
+  }
+}
+
+function renderAll() {
+  if (!_playersInitialized) return;
+  renderHeader();
+  renderHero();
+  renderPlayers();
+  renderShotClock();
+  renderHistory();
+  renderReasoning();
+  renderFinal();
+  renderFooter();
+}
+
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs) { return; }
+  el.style.display = 'block';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (S.shotClock.lastTurnTime && !isReplaying) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var cls = 'clock-display ';
+    if (remaining <= 5000) cls += 'clock-danger';
+    else if (remaining <= 10000) cls += 'clock-warn';
+    else cls += 'clock-ok';
+    display.className = cls;
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wModel = S.models[S.shotClock.waitingOn] || S.shotClock.waitingOn;
+  label.innerHTML = 'SHOT CLOCK <span style="color:var(--dim)">\u00b7</span> ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var parts = [];
+    PIDS.forEach(function(pid) {
+      var s = S.shotClock.strikes[pid] || 0;
+      var m = S.models[pid] || LABELS[pid];
+      parts.push('<span class="' + CLASS_NAMES[pid] + '">' + m + ': ' + s + '/' + S.shotClock.strikeLimit + '</span>');
+    });
+    strikeEl.innerHTML = parts.join(' \u00b7 ');
+  } else { strikeEl.innerHTML = ''; }
+  if (S.finished) el.style.display = 'none';
+}
+
+function renderHeader() {
+  var badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  var parts = [];
+  PIDS.forEach(function(pid) {
+    var name = S.models[pid] || ('Player ' + LABELS[pid]);
+    parts.push('<span class="' + CLASS_NAMES[pid] + '">' + name + '</span>');
+  });
+  document.getElementById('matchup').innerHTML = parts.join(' <span style="color:var(--dim)">vs</span> ');
+
+  var scores = S.finished ? S.finalScores : S.matchScores;
+  var sub = '<strong>Game ' + S.gameNumber + '</strong>';
+  if (S.gamesPerMatch > 1) sub += ' of ' + S.gamesPerMatch;
+  sub += ' <span style="color:var(--dim)">|</span> ';
+  PIDS.forEach(function(pid) {
+    var sc = scores[pid] != null ? scores[pid] : (S.matchScores[pid] || 0);
+    sub += '<span class="' + CLASS_NAMES[pid] + '" style="font-weight:bold">' + LABELS[pid] + ':' + Math.round(sc) + '</span> ';
+  });
+  sub += '<span style="color:var(--dim)">|</span> <span class="target-rank">' + (RANK_NAMES[S.targetRank] || S.targetRank) + '</span>';
+  document.getElementById('sub-info').innerHTML = sub;
+}
+
+function cardPillHTML(card) {
+  var suit = card.slice(-1);
+  var isRed = (suit === '\u2665' || suit === '\u2666');
+  return '<span class="card-pill ' + (isRed ? 'red' : 'black') + '">' + card + '</span>';
+}
+
+function cardPillWithHighlight(card, highlight) {
+  var suit = card.slice(-1);
+  var isRed = (suit === '\u2665' || suit === '\u2666');
+  var cls = 'card-pill ' + (isRed ? 'red' : 'black');
+  if (highlight) cls += ' match-rank';
+  return '<span class="' + cls + '">' + card + '</span>';
+}
+
+function renderHero() {
+  var hero = document.getElementById('hero');
+  var actionEl = document.getElementById('hero-action');
+  var detailEl = document.getElementById('hero-detail');
+  var challengeEl = document.getElementById('hero-challenge');
+
+  document.getElementById('pile-count').textContent = S.discardPileSize;
+
+  if (!S.lastPlay || !S.history.length) {
+    hero.className = '';
+    actionEl.textContent = 'Waiting for first play...';
+    detailEl.textContent = '';
+    challengeEl.textContent = '';
+    return;
+  }
+
+  var last = S.history[S.history.length - 1];
+  var lp = S.lastPlay;
+  var pid = lp.player;
+  var model = S.models[pid] || LABELS[pid];
+  var clr = CLASS_NAMES[pid];
+  var rank = RANK_NAMES[lp.claim_rank] || lp.claim_rank;
+  var count = lp.claim_count;
+
+  actionEl.innerHTML = '<span class="' + clr + '">' + model + '</span> played ' + count + ' card(s) claiming <strong>' + rank + '</strong>';
+
+  // Actual cards + truth/lie
+  var cards = (lp.cards || []).map(cardPillHTML).join(' ');
+  var tag = '';
+  if (last.was_truthful) {
+    tag = ' <span class="truth-tag">TRUTH</span>';
+    hero.className = 'truth';
+  } else {
+    tag = ' <span class="lie-tag">LIE</span>';
+    hero.className = 'lie';
+  }
+  detailEl.innerHTML = 'Actual: ' + cards + tag;
+
+  // Challenge result
+  if (last.challenge_by) {
+    var cModel = S.models[last.challenge_by] || LABELS[last.challenge_by];
+    var cClr = CLASS_NAMES[last.challenge_by];
+    if (last.was_bluff) {
+      challengeEl.innerHTML = '<span class="' + cClr + '">' + cModel + '</span> called BS \u2192 <span class="caught">CAUGHT! Liar picks up pile</span>';
+    } else {
+      challengeEl.innerHTML = '<span class="' + cClr + '">' + cModel + '</span> called BS \u2192 <span class="wrong-call">WRONG! Caller picks up pile</span>';
+    }
+    hero.className = last.was_bluff ? 'truth' : 'lie';
+  } else {
+    challengeEl.innerHTML = '<span class="unchallenged">Unchallenged</span>';
+    hero.className = '';
+  }
+}
+
+function renderPlayers() {
+  PIDS.forEach(function(pid) {
+    var suf = SUFFIXES[pid];
+    var panel = document.getElementById('panel-' + suf);
+    var nameEl = document.getElementById('name-' + suf);
+    var countEl = document.getElementById('count-' + suf);
+    var handEl = document.getElementById('hand-' + suf);
+    var statsEl = document.getElementById('stats-' + suf);
+
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    nameEl.textContent = model;
+
+    var isElim = S.eliminated.indexOf(pid) >= 0;
+    var isPlayTurn = (pid === S.currentPlayer && !S.finished && S.phase === 'play');
+    var isChallenging = (pid === S.currentPlayer && !S.finished && S.phase === 'challenge');
+    var isLastPlayer = (S.phase === 'challenge' && pid === S.lastPlayPlayer && !S.finished);
+
+    var cls = 'player-panel';
+    if (isChallenging) cls += ' challenging';
+    else if (isPlayTurn || isLastPlayer) cls += ' active';
+    if (isElim) cls += ' eliminated';
+    panel.className = cls;
+
+    var cc = S.cardCounts[pid] || 0;
+    if (isElim) {
+      var finishIdx = S.finishOrder.indexOf(pid);
+      if (finishIdx >= 0) {
+        countEl.innerHTML = '<span style="color:var(--green)">' + ordinal(finishIdx + 1) + ' OUT</span>';
+      } else {
+        countEl.innerHTML = '<span style="color:var(--red)">DQ</span>';
+      }
+    } else {
+      countEl.textContent = cc + ' cards';
+    }
+
+    // God mode hand — highlight cards matching target rank
+    var hand = S.hands[pid] || [];
+    if (hand.length > 0) {
+      handEl.innerHTML = hand.map(function(card) {
+        var rank = card.slice(0, -1);
+        return cardPillWithHighlight(card, rank === S.targetRank);
+      }).join('');
+    } else {
+      handEl.innerHTML = '<span style="color:var(--dim)">(empty)</span>';
+    }
+
+    // Stats
+    var ps = (S.playerStats || {})[pid] || {};
+    var lies = ps.lie_count || 0;
+    var truths = ps.truth_count || 0;
+    var caught = ps.times_caught || 0;
+    var calls = ps.times_called_bs || 0;
+    var correct = ps.correct_calls || 0;
+    var total = lies + truths;
+
+    var statParts = [];
+    if (total > 0) {
+      var liePct = Math.round(lies * 100 / total);
+      statParts.push('Bluff: ' + liePct + '%');
+    }
+    if (caught > 0) statParts.push('<span class="caught">Caught: ' + caught + '</span>');
+    if (calls > 0) {
+      var acc = Math.round(correct * 100 / calls);
+      statParts.push('BS calls: ' + calls + ' (' + acc + '%)');
+    }
+    var v = S.violations[pid] || 0;
+    if (v > 0) statParts.push('<span style="color:var(--red)">Violations: ' + v + '</span>');
+    statsEl.innerHTML = statParts.join(' &middot; ');
+  });
+}
+
+function renderHistory() {
+  var el = document.getElementById('history');
+  if (!S.history.length) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No plays yet</span>';
+    return;
+  }
+  var recent = S.history.slice(-12).reverse();
+  el.innerHTML = recent.map(function(h) {
+    var pid = h.player;
+    var clr = CLASS_NAMES[pid] || '';
+    var model = S.models[pid] || LABELS[pid] || pid;
+
+    var tag = '';
+    if (h.challenge_by) {
+      var cModel = S.models[h.challenge_by] || LABELS[h.challenge_by] || h.challenge_by;
+      var cClr = CLASS_NAMES[h.challenge_by] || '';
+      if (h.was_bluff) {
+        tag = '<span class="lie">LIE</span> \u2192 <span class="' + cClr + '">' + cModel + '</span> <span class="caught">caught!</span>';
+      } else {
+        tag = '<span class="truth">TRUTH</span> \u2192 <span class="' + cClr + '">' + cModel + '</span> <span class="wrong-call">wrong!</span>';
+      }
+    } else {
+      if (h.was_truthful) {
+        tag = '<span class="truth">TRUTH</span> <span class="unchallenged">(unchallenged)</span>';
+      } else {
+        tag = '<span class="lie">LIE</span> <span class="unchallenged">(unchallenged)</span>';
+      }
+    }
+
+    return '<div class="entry"><span style="color:var(--dim)">T' + h.turn + '</span> <span class="' + clr + '">' + model + '</span> played ' + h.claim_count + ' ' + (RANK_NAMES[h.claim_rank] || h.claim_rank) + ' ' + tag + '</div>';
+  }).join('');
+}
+
+function renderReasoning() {
+  var el = document.getElementById('reasoning-content');
+  if (!S.lastReasoning) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting...</span>';
+    return;
+  }
+  el.innerHTML = '<span style="font-weight:bold">' + (S.lastModel || '?') + ':</span> <span style="font-style:italic;color:var(--dim)">' + S.lastReasoning.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+}
+
+function ordinal(n) {
+  var s = ['th','st','nd','rd'];
+  var v = n % 100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+
+function renderFinal() {
+  var panel = document.getElementById('final-panel');
+  if (!S.finished) { panel.className = 'panel'; return; }
+  panel.className = 'panel show';
+
+  var scores = S.finalScores || S.matchScores;
+  var ranked = PIDS.slice().sort(function(a,b) { return (scores[b]||0) - (scores[a]||0); });
+
+  var winner = ranked[0];
+  var wModel = S.models[winner] || LABELS[winner];
+  var wClr = CLASS_NAMES[winner];
+
+  var html = '<div class="winner"><span class="' + wClr + '">' + wModel + ' WINS!</span></div>';
+  html += '<div class="standings">';
+  ranked.forEach(function(pid, i) {
+    var m = S.models[pid] || LABELS[pid];
+    var clr = CLASS_NAMES[pid];
+    html += '<div>' + ordinal(i+1) + ': <span class="' + clr + '" style="font-weight:bold">' + m + '</span> (' + Math.round(scores[pid]||0) + ' pts)</div>';
+  });
+  html += '</div>';
+
+  // Deception leaderboard
+  html += '<div class="standings" style="margin-top:10px"><strong>Deception Stats</strong>';
+  PIDS.forEach(function(pid) {
+    var ps = (S.playerStats || {})[pid] || {};
+    var m = S.models[pid] || LABELS[pid];
+    var clr = CLASS_NAMES[pid];
+    var lies = ps.lie_count || 0;
+    var truths = ps.truth_count || 0;
+    var total = lies + truths;
+    var liePct = total > 0 ? Math.round(lies * 100 / total) : 0;
+    var caught = ps.times_caught || 0;
+    var calls = ps.times_called_bs || 0;
+    var correct = ps.correct_calls || 0;
+    var callAcc = calls > 0 ? Math.round(correct * 100 / calls) : 0;
+    html += '<div><span class="' + clr + '">' + m + '</span>: bluff ' + liePct + '%, caught ' + caught + 'x, BS calls ' + calls + ' (' + callAcc + '% acc)</div>';
+  });
+  html += '</div>';
+
+  document.getElementById('final-content').innerHTML = html;
+}
+
+function renderFooter() {
+  var st = document.getElementById('status-text');
+  if (S.finished) {
+    st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Match Complete';
+  } else {
+    st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
+  }
+  document.getElementById('discard-count').textContent = S.discardPileSize;
+  document.getElementById('turn-count').textContent = S.turnCount;
+}
+
+function drainQueue() {
+  if (turnQueue.length === 0) { isReplaying = false; return; }
+  var batch = turnQueue.splice(0, 3);
+  batch.forEach(function(d) { processTurn(d); });
+  renderAll();
+  if (turnQueue.length > 0) {
+    setTimeout(drainQueue, 200);
+  } else {
+    isReplaying = false;
+    renderShotClock();
+  }
+}
+
+// SSE connection
+var evtPath = '/events';
+// Patch for compact/iframe mode
+if (window.location.pathname.match(/^\/match\//)) {
+  var matchId = window.location.pathname.split('/match/')[1];
+  if (matchId) evtPath = '/events/' + matchId;
+}
+var es = new EventSource(evtPath);
+es.onmessage = function(e) {
+  var data = JSON.parse(e.data);
+  if (isReplaying) {
+    turnQueue.push(data);
+  } else if (rawLines.length === 0) {
+    // First batch — replay with animation
+    turnQueue.push(data);
+    isReplaying = true;
+    drainQueue();
+  } else {
+    processTurn(data);
+    renderAll();
+  }
+};
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+</script>
+</body>
+</html>"""
+
+
 # ── Holdem HTML/CSS/JS ───────────────────────────────────────────
 
 HOLDEM_HTML_PAGE = r"""<!DOCTYPE html>
@@ -5272,6 +6063,258 @@ setInterval(function() {
 </html>"""
 
 
+# ── Multi-Event Match Page ─────────────────────────────────────────
+
+MULTI_EVENT_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Event Match</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { margin: 0; overflow: hidden; background: #0a0a1a; font-family: 'Segoe UI', system-ui, sans-serif; color: #eee;
+  display: flex; flex-direction: column; height: 100vh; }
+
+.top-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 28px; padding: 0 12px; background: #1a1a2e;
+  font-size: 12px; border-bottom: 1px solid #333; flex-shrink: 0;
+}
+.top-bar .player { flex: 1; }
+.top-bar .player.left { text-align: left; }
+.top-bar .player.right { text-align: right; }
+.top-bar .score {
+  flex: 0 0 auto; padding: 0 16px;
+  font-size: 15px; font-weight: bold; color: #ffd700;
+}
+.top-bar .winner-tag {
+  display: inline-block; margin-left: 6px;
+  font-size: 9px; color: #4ecdc4; font-weight: bold;
+}
+
+#active-frame { flex: 1; min-height: 0; position: relative; }
+#active-frame iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; display: none; }
+#active-frame iframe.visible { display: block; }
+
+.scoreboard {
+  display: flex; flex-shrink: 0; height: 36px;
+  border-top: 1px solid #333; background: #1a1a2e;
+}
+.sb-cell {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  gap: 6px; font-size: 11px; color: #666; padding: 0 6px;
+  border-right: 1px solid #222; cursor: pointer; transition: background 0.15s;
+}
+.sb-cell:last-child { border-right: none; }
+.sb-cell:hover { background: #222; }
+.sb-cell .sb-icon { font-size: 10px; width: 12px; text-align: center; }
+.sb-cell .sb-label { white-space: nowrap; }
+.sb-cell .sb-score { font-weight: bold; white-space: nowrap; }
+
+.sb-cell.active { background: #1e2d4a; color: #58a6ff; border-bottom: 2px solid #58a6ff; }
+.sb-cell.complete { color: #aaa; }
+.sb-cell.complete .sb-icon { color: #3fb950; }
+.sb-cell.win-a .sb-score { color: #4ecdc4; }
+.sb-cell.win-b .sb-score { color: #ff6b6b; }
+.sb-cell.draw .sb-score { color: #ffd700; }
+.sb-cell.upcoming { color: #444; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="player left" id="player-a">--</div>
+  <div class="score" id="agg-score">- &ndash; -</div>
+  <div class="player right" id="player-b">--</div>
+</div>
+<div id="active-frame"></div>
+<div class="scoreboard" id="scoreboard"></div>
+
+<script>
+var MATCH_ID = '__MATCH_ID__';
+var LABELS = {
+  tictactoe: 'TTT', connectfour: 'C4',
+  reversi: 'Rev', holdem: "Hold'em",
+  checkers: 'Check', scrabble: 'Scrab'
+};
+var LONG_LABELS = {
+  tictactoe: 'Tic-Tac-Toe', connectfour: 'Connect Four',
+  reversi: 'Reversi', holdem: "Hold'em",
+  checkers: 'Checkers', scrabble: 'Scrabble'
+};
+
+var eventOrder = [];
+var eventMatchIds = {};
+var currentEvent = null;
+var iframeCache = {};
+var lastMatch = null;
+
+function findMatch(manifest) {
+  if (!manifest.rounds) return null;
+  for (var i = 0; i < manifest.rounds.length; i++) {
+    var matches = manifest.rounds[i].matches;
+    for (var j = 0; j < matches.length; j++) {
+      if (matches[j].match_id === MATCH_ID) return matches[j];
+    }
+  }
+  return null;
+}
+
+function getActiveEvent(match) {
+  // First event without a score entry is the active one
+  var es = match.event_scores || {};
+  for (var i = 0; i < eventOrder.length; i++) {
+    if (!es[eventOrder[i]]) return eventOrder[i];
+  }
+  // All complete — return last
+  return eventOrder[eventOrder.length - 1];
+}
+
+function createAllIframes() {
+  var container = document.getElementById('active-frame');
+  for (var i = 0; i < eventOrder.length; i++) {
+    var ev = eventOrder[i];
+    var iframe = document.createElement('iframe');
+    // Lazy-load: store URL but don't set src until activated
+    iframe.setAttribute('data-src', '/match/' + eventMatchIds[ev] + '?compact=1');
+    iframe.setAttribute('data-event', ev);
+    container.appendChild(iframe);
+    iframeCache[ev] = iframe;
+  }
+}
+
+function showEvent(ev) {
+  currentEvent = ev;
+  for (var i = 0; i < eventOrder.length; i++) {
+    var evName = eventOrder[i];
+    var f = iframeCache[evName];
+    if (!f) continue;
+    var isActive = (evName === ev);
+    f.classList.toggle('visible', isActive);
+    // Load iframe on first activation
+    if (isActive && !f.src) {
+      f.src = f.getAttribute('data-src');
+    }
+  }
+  renderScoreboard();
+}
+
+function updateTopBar(match) {
+  if (!match) return;
+  document.getElementById('player-a').innerHTML = match.model_a +
+    (match.winner === match.model_a ? '<span class="winner-tag">WINNER</span>' : '');
+  document.getElementById('player-b').innerHTML =
+    (match.winner === match.model_b ? '<span class="winner-tag">WINNER</span>' : '') + match.model_b;
+  var sa = match.scores && match.scores.player_a != null ? match.scores.player_a : '-';
+  var sb = match.scores && match.scores.player_b != null ? match.scores.player_b : '-';
+  var fmt = function(v) { return typeof v === 'number' ? v.toFixed(1) : v; };
+  document.getElementById('agg-score').textContent = fmt(sa) + ' \u2013 ' + fmt(sb);
+}
+
+function updateScoreboard(match) {
+  if (match) lastMatch = match;
+  renderScoreboard();
+}
+
+function renderScoreboard() {
+  var sb = document.getElementById('scoreboard');
+  var es = lastMatch ? (lastMatch.event_scores || {}) : {};
+  var activeEv = lastMatch ? getActiveEvent(lastMatch) : (eventOrder[0] || '');
+
+  sb.innerHTML = '';
+  for (var i = 0; i < eventOrder.length; i++) {
+    var ev = eventOrder[i];
+    var cell = document.createElement('div');
+    cell.className = 'sb-cell';
+    cell.setAttribute('data-event', ev);
+
+    var scores = es[ev];
+    var icon, scoreText = '';
+    if (scores) {
+      cell.classList.add('complete');
+      icon = '\u2713';
+      var sa = Math.round(scores.score_a), sb2 = Math.round(scores.score_b);
+      scoreText = sa + '-' + sb2;
+      if (scores.point_a > scores.point_b) cell.classList.add('win-a');
+      else if (scores.point_b > scores.point_a) cell.classList.add('win-b');
+      else cell.classList.add('draw');
+    } else if (ev === activeEv) {
+      icon = '\u25B6';
+    } else {
+      cell.classList.add('upcoming');
+      icon = '\u00b7';
+    }
+    if (ev === currentEvent) cell.classList.add('active');
+
+    cell.innerHTML =
+      '<span class="sb-icon">' + icon + '</span>' +
+      '<span class="sb-label">' + (LABELS[ev] || ev) + '</span>' +
+      (scoreText ? '<span class="sb-score">' + scoreText + '</span>' : '');
+
+    sb.appendChild(cell);
+  }
+}
+
+var lastActiveEvent = null;
+
+function onUpdate(match) {
+  if (!match) return;
+  updateTopBar(match);
+  var activeEv = getActiveEvent(match);
+  // Only auto-switch when a genuinely new event starts (previous one completed)
+  if (activeEv !== lastActiveEvent) {
+    lastActiveEvent = activeEv;
+    showEvent(activeEv);
+  }
+  updateScoreboard(match);
+}
+
+function init() {
+  fetch('/manifest').then(function(r) { return r.json(); }).then(function(manifest) {
+    var match = findMatch(manifest);
+    if (!match || !match.event_match_ids) {
+      document.getElementById('active-frame').innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;">Waiting for match data\u2026</div>';
+      setTimeout(init, 2000);
+      return;
+    }
+    eventOrder = Object.keys(match.event_match_ids);
+    eventMatchIds = match.event_match_ids;
+    lastMatch = match;
+
+    createAllIframes();
+
+    // Delegated click handler for scoreboard tabs
+    document.getElementById('scoreboard').addEventListener('click', function(e) {
+      var cell = e.target.closest('.sb-cell');
+      if (!cell) return;
+      var ev = cell.getAttribute('data-event');
+      if (ev) showEvent(ev);
+    });
+
+    var activeEv = getActiveEvent(match);
+    showEvent(activeEv);
+    updateTopBar(match);
+
+    // Poll manifest instead of SSE to conserve browser connections
+    // (each iframe SSE needs a connection; browser limit is ~6 per origin)
+    var pollInterval = setInterval(function() {
+      fetch('/manifest').then(function(r) { return r.json(); }).then(function(m) {
+        var updated = findMatch(m);
+        if (updated) onUpdate(updated);
+        if (m.status === 'complete') clearInterval(pollInterval);
+      }).catch(function() {});
+    }, 3000);
+  }).catch(function() { setTimeout(init, 2000); });
+}
+
+init();
+</script>
+</body>
+</html>"""
+
+
 # ── Bracket HTML/CSS/JS ───────────────────────────────────────────
 
 BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
@@ -5997,33 +7040,74 @@ class BracketSpectatorHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _get_event_type(self):
-        """Read manifest and return event type (e.g. 'tictactoe')."""
+        """Read manifest and return event type (e.g. 'tictactoe' or 'multi')."""
         try:
             data = json.loads(self.manifest_path.read_text())
-            return data.get("event", "scrabble")
+            evt = data.get("event", "scrabble")
+            if "+" in evt:
+                return "multi"
+            return evt
         except (FileNotFoundError, json.JSONDecodeError):
             return "scrabble"
+
+    def _resolve_match_event_type(self, match_id):
+        """For multi-event tournaments, determine if match_id is composite or per-event.
+
+        Returns the specific event name (e.g. 'tictactoe') if it's a per-event
+        match, or 'multi' if it's the composite match_id.
+        """
+        try:
+            data = json.loads(self.manifest_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return "multi"
+        for rd in data.get("rounds", []):
+            for m in rd.get("matches", []):
+                if m.get("match_id") == match_id:
+                    return "multi"
+                for evt, emid in m.get("event_match_ids", {}).items():
+                    if emid == match_id:
+                        return evt
+        return "multi"
 
     def _serve_match_page(self, match_id):
         """Serve a single-match HTML page patched to connect to /events/{match_id}."""
         event_type = self._get_event_type()
-        html = self.page_map.get(event_type, self.page_map.get("scrabble", ""))
-        if not html:
-            self.send_error(404, "Unknown event type")
-            return
-        # Patch EventSource to point at the match-specific SSE endpoint
-        html = html.replace(
-            "EventSource('/events')",
-            f"EventSource('/events/{match_id}')"
-        )
-        # Inject compact CSS if ?compact=1
-        if '?compact=1' in self.path:
-            compact_css = (
-                "\n/* compact overrides for iframe embedding */\n"
-                "body { max-width: none !important; padding: 4px !important; font-size: 11px !important; overflow: hidden !important; }\n"
-                "#header { padding: 4px 8px !important; margin-bottom: 4px !important; }\n"
+        if event_type == "multi":
+            # Resolve whether this specific match_id is composite or per-event
+            event_type = self._resolve_match_event_type(match_id)
+        if event_type == "multi":
+            # Multi-event composite page — child iframes handle their own SSE
+            html = self.page_map.get("multi", "")
+            if not html:
+                self.send_error(404, "Unknown event type")
+                return
+            html = html.replace("'__MATCH_ID__'", f"'{match_id}'")
+            if '?compact=1' in self.path:
+                compact_css = (
+                    "\n/* compact overrides for iframe embedding */\n"
+                    "body { overflow: hidden !important; }\n"
+                    ".top-bar { height: 24px !important; font-size: 11px !important; }\n"
+                    ".top-bar .score { font-size: 13px !important; }\n"
+                )
+                html = html.replace("</style>", compact_css + "</style>", 1)
+        else:
+            html = self.page_map.get(event_type, self.page_map.get("scrabble", ""))
+            if not html:
+                self.send_error(404, "Unknown event type")
+                return
+            # Patch EventSource to point at the match-specific SSE endpoint
+            html = html.replace(
+                "EventSource('/events')",
+                f"EventSource('/events/{match_id}')"
             )
-            html = html.replace("</style>", compact_css + "</style>", 1)
+            # Inject compact CSS if ?compact=1
+            if '?compact=1' in self.path:
+                compact_css = (
+                    "\n/* compact overrides for iframe embedding */\n"
+                    "body { max-width: none !important; padding: 4px !important; font-size: 11px !important; overflow: hidden !important; }\n"
+                    "#header { padding: 4px 8px !important; margin-bottom: 4px !important; }\n"
+                )
+                html = html.replace("</style>", compact_css + "</style>", 1)
         body = html.encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -6188,6 +7272,7 @@ def main():
             "tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE,
             "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE,
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
+            "bullshit": BULLSHIT_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
@@ -6202,10 +7287,10 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi"}.get(event_type, event_type)
+        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit"}.get(event_type, event_type)
         print(f"{label} Web Spectator")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")

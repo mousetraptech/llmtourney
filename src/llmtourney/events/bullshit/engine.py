@@ -1,18 +1,17 @@
-"""Bullshit (Cheat / I Doubt It) — 4-player card game engine.
+"""Bullshit (Cheat / I Doubt It) — N-player card game engine.
 
 A bluffing card game where players take turns placing cards face-down,
 claiming they match the current target rank. Other players may challenge
 ("call bullshit"). If the challenge is correct the liar picks up the
 discard pile; if wrong the challenger does. First to empty their hand wins.
 
-This is a 4-player engine (player_a through player_d). The Event ABC
-and TournamentEngine currently assume 2-player matches, so tournament
-integration will require a separate refactor.
+Supports 3-10 players (default 4). Uses 1 deck for <=6 players, 2 for 7+.
 """
 
 from __future__ import annotations
 
 import random
+import string
 from enum import Enum
 from pathlib import Path
 
@@ -45,16 +44,23 @@ class Phase(Enum):
 
 
 class BullshitEvent(Event):
-    """4-player Bullshit card game engine.
+    """N-player Bullshit card game engine.
 
     Parameters
     ----------
     games_per_match : int
         Number of games to play in a match (default 1 for standalone).
+    num_players : int
+        Number of players (3-10, default 4).
     """
 
-    def __init__(self, games_per_match: int = 1) -> None:
+    def __init__(self, games_per_match: int = 1, num_players: int = 4) -> None:
         self._games_per_match = games_per_match
+        self._num_players = num_players
+
+        # Generate player IDs and labels dynamically
+        self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
+        self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
 
         schema_path = Path(__file__).parent / "schema.json"
         self._action_schema = load_schema(schema_path)
@@ -67,9 +73,9 @@ class BullshitEvent(Event):
         self._hands: dict[str, list[str]] = {}
         self._discard_pile: list[str] = []
         self._target_rank_idx: int = 0  # index into RANKS
-        self._turn_player_idx: int = 0  # index into PLAYER_IDS
+        self._turn_player_idx: int = 0  # index into self._player_ids
         self._phase: Phase = Phase.PLAY
-        self._challenge_idx: int = 0  # which challenger is up (0-2)
+        self._challenge_idx: int = 0  # which challenger is up
         self._challengers: list[str] = []  # ordered list of potential challengers
 
         # Last play info (for challenge resolution)
@@ -86,7 +92,7 @@ class BullshitEvent(Event):
         self._highlight_turns: list[int] = []
 
         # Scores across games
-        self._match_scores: dict[str, float] = {p: 0.0 for p in PLAYER_IDS}
+        self._match_scores: dict[str, float] = {p: 0.0 for p in self._player_ids}
 
         # Per-player deception stats
         self._player_stats: dict[str, dict] = {
@@ -97,7 +103,7 @@ class BullshitEvent(Event):
                 "times_called_bs": 0,
                 "correct_calls": 0,
             }
-            for p in PLAYER_IDS
+            for p in self._player_ids
         }
 
     # ------------------------------------------------------------------
@@ -108,23 +114,23 @@ class BullshitEvent(Event):
         self._rng = random.Random(seed)
         self._game_number = 0
         self._terminal = False
-        self._match_scores = {p: 0.0 for p in PLAYER_IDS}
+        self._match_scores = {p: 0.0 for p in self._player_ids}
         self._highlight_turns = []
         self._start_new_game()
 
     def current_player(self) -> str:
         if self._phase == Phase.PLAY:
-            return PLAYER_IDS[self._turn_player_idx]
+            return self._player_ids[self._turn_player_idx]
         else:
             return self._challengers[self._challenge_idx]
 
     def get_prompt(self, player_id: str) -> str:
-        label = PLAYER_LABELS[player_id]
+        label = self._player_labels[player_id]
         hand = self._hands[player_id]
         target_rank = RANKS[self._target_rank_idx]
 
         lines = [
-            f"You are playing Bullshit (a.k.a. Cheat / I Doubt It) with 4 players.",
+            f"You are playing Bullshit (a.k.a. Cheat / I Doubt It) with {self._num_players} players.",
             f"You are Player {label}.",
             "",
         ]
@@ -132,16 +138,16 @@ class BullshitEvent(Event):
         if self._games_per_match > 1:
             lines.append(f"Game {self._game_number} of {self._games_per_match}.")
             score_parts = []
-            for pid in PLAYER_IDS:
-                pl = PLAYER_LABELS[pid]
+            for pid in self._player_ids:
+                pl = self._player_labels[pid]
                 score_parts.append(f"{pl}: {self._match_scores[pid]:.0f}")
             lines.append(f"Match scores: {', '.join(score_parts)}")
             lines.append("")
 
         # Card counts
         lines.append("Card counts:")
-        for pid in PLAYER_IDS:
-            pl = PLAYER_LABELS[pid]
+        for pid in self._player_ids:
+            pl = self._player_labels[pid]
             n = len(self._hands[pid])
             marker = " (you)" if pid == player_id else ""
             if pid in self._eliminated:
@@ -173,7 +179,7 @@ class BullshitEvent(Event):
             # Challenge phase
             last = self._history[-1] if self._history else None
             if last:
-                who = PLAYER_LABELS[last["player"]]
+                who = self._player_labels[last["player"]]
                 lines.append(
                     f"Player {who} just played {last['claim_count']} card(s) "
                     f"claiming {RANK_NAMES[last['claim_rank']]}."
@@ -190,12 +196,12 @@ class BullshitEvent(Event):
             lines.append("")
             lines.append("Recent plays:")
             for entry in self._history[-8:]:
-                who = PLAYER_LABELS[entry["player"]]
+                who = self._player_labels[entry["player"]]
                 result = ""
                 if entry.get("challenge_by"):
-                    challenger = PLAYER_LABELS[entry["challenge_by"]]
+                    challenger = self._player_labels[entry["challenge_by"]]
                     if entry["was_bluff"]:
-                        result = f" → called by {challenger}, WAS BLUFF! {PLAYER_LABELS[entry['player']]} picks up pile"
+                        result = f" → called by {challenger}, WAS BLUFF! {self._player_labels[entry['player']]} picks up pile"
                     else:
                         result = f" → called by {challenger}, was TRUTHFUL! {challenger} picks up pile"
                 lines.append(
@@ -283,10 +289,10 @@ class BullshitEvent(Event):
             "phase": self._phase.value,
             "target_rank": RANKS[self._target_rank_idx],
             "current_player": self.current_player(),
-            "card_counts": {p: len(self._hands[p]) for p in PLAYER_IDS},
+            "card_counts": {p: len(self._hands[p]) for p in self._player_ids},
             "discard_pile_size": len(self._discard_pile),
             "discard_pile": list(self._discard_pile),
-            "hands": {p: list(self._hands[p]) for p in PLAYER_IDS},  # hidden info for telemetry
+            "hands": {p: list(self._hands[p]) for p in self._player_ids},
             "last_play": {
                 "player": self._last_play_player,
                 "cards": list(self._last_play_cards),
@@ -298,12 +304,12 @@ class BullshitEvent(Event):
             "eliminated": list(self._eliminated),
             "terminal": self._terminal,
             "match_scores": dict(self._match_scores),
-            "player_stats": {p: dict(self._player_stats[p]) for p in PLAYER_IDS},
+            "player_stats": {p: dict(self._player_stats[p]) for p in self._player_ids},
         }
 
     @property
     def player_ids(self) -> list[str]:
-        return list(PLAYER_IDS)
+        return list(self._player_ids)
 
     @property
     def action_schema(self) -> dict:
@@ -313,10 +319,14 @@ class BullshitEvent(Event):
         self._terminal = True
 
     def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        # Award max points to all non-forfeiting players
-        for pid in PLAYER_IDS:
+        # Award points for all remaining unplayed games.
+        # The forfeiting player gets 0 for each; others get max (N-1 points).
+        # Current game counts as unplayed (it was interrupted).
+        remaining_games = self._games_per_match - self._game_number + 1
+        max_points = float(self._num_players - 1)
+        for pid in self._player_ids:
             if pid != forfeiting_player_id:
-                self._match_scores[pid] += 3.0
+                self._match_scores[pid] += max_points * remaining_games
         self._terminal = True
 
     def get_highlight_hands(self) -> list[int]:
@@ -332,12 +342,13 @@ class BullshitEvent(Event):
             self._terminal = True
             return
 
-        deck = list(FULL_DECK)
+        # Use 1 deck for <=6 players, 2 decks for 7+
+        deck = list(FULL_DECK) if self._num_players <= 6 else list(FULL_DECK) * 2
         self._rng.shuffle(deck)
 
-        self._hands = {p: [] for p in PLAYER_IDS}
+        self._hands = {p: [] for p in self._player_ids}
         for i, card in enumerate(deck):
-            self._hands[PLAYER_IDS[i % 4]].append(card)
+            self._hands[self._player_ids[i % self._num_players]].append(card)
 
         self._discard_pile = []
         self._target_rank_idx = 0  # start with Aces
@@ -353,7 +364,7 @@ class BullshitEvent(Event):
         self._last_play_rank = ""
 
         # Reset per-game deception stats
-        for p in PLAYER_IDS:
+        for p in self._player_ids:
             self._player_stats[p] = {
                 "lie_count": 0,
                 "truth_count": 0,
@@ -365,11 +376,12 @@ class BullshitEvent(Event):
     def _finish_game(self) -> None:
         """Score the game and start the next one."""
         # Players not yet in finish_order still have cards — rank by fewest cards
-        remaining = [p for p in PLAYER_IDS if p not in self._finish_order]
+        remaining = [p for p in self._player_ids if p not in self._finish_order]
         remaining.sort(key=lambda p: len(self._hands[p]))
         final_order = list(self._finish_order) + remaining
 
-        points = [3.0, 2.0, 1.0, 0.0]
+        # N-1 points for 1st, N-2 for 2nd, ..., 0 for last
+        points = [float(self._num_players - 1 - i) for i in range(self._num_players)]
         for i, pid in enumerate(final_order):
             self._match_scores[pid] += points[i]
 
@@ -379,9 +391,9 @@ class BullshitEvent(Event):
         """Move to the next active player's turn and advance target rank."""
         self._target_rank_idx = (self._target_rank_idx + 1) % len(RANKS)
         # Find next player who still has cards
-        for _ in range(4):
-            self._turn_player_idx = (self._turn_player_idx + 1) % 4
-            pid = PLAYER_IDS[self._turn_player_idx]
+        for _ in range(self._num_players):
+            self._turn_player_idx = (self._turn_player_idx + 1) % self._num_players
+            pid = self._player_ids[self._turn_player_idx]
             if pid not in self._eliminated:
                 break
         self._phase = Phase.PLAY
@@ -448,7 +460,7 @@ class BullshitEvent(Event):
 
         # Enter challenge phase
         self._challengers = [
-            p for p in PLAYER_IDS
+            p for p in self._player_ids
             if p != player_id and p not in self._eliminated
         ]
         if not self._challengers:
@@ -526,10 +538,11 @@ class BullshitEvent(Event):
             self._eliminated.add(player_id)
             self._finish_order.append(player_id)
 
-            # Check if game is over (3 players eliminated or only 1 remains)
-            active = [p for p in PLAYER_IDS if p not in self._eliminated]
-            if len(active) <= 1:
-                # Last player standing gets added to finish order
-                if active:
-                    self._finish_order.append(active[0])
+            # End when <=2 remain — 2-player BS is degenerate
+            active = [p for p in self._player_ids if p not in self._eliminated]
+            if len(active) <= 2:
+                # Rank remaining by fewest cards (tie for last)
+                active.sort(key=lambda p: len(self._hands[p]))
+                for p in active:
+                    self._finish_order.append(p)
                 self._finish_game()

@@ -1,0 +1,38 @@
+tournament:
+  name: "bullshit-flyweight-match"
+  seed: 77
+  format: round_robin
+  version: "0.1.0"
+models:
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  nova-lite:
+    provider: openrouter
+    model_id: amazon/nova-lite-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  haiku:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  perplexity:
+    provider: openrouter
+    model_id: perplexity/sonar
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  bullshit:
+    weight: 1
+    games_per_match: 5
+shot_clock:
+  default_ms: 30000
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 30.0

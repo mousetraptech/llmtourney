@@ -208,7 +208,9 @@ class TournamentEngine:
                 model_version=model_name,
             ), False
 
-    def _build_event(self, event_name: str, event_cfg: EventConfig) -> Event:
+    def _build_event(
+        self, event_name: str, event_cfg: EventConfig, num_players: int = 2,
+    ) -> Event:
         """Instantiate an event engine from config."""
         if event_name == "checkers":
             return CheckersEvent(games_per_match=event_cfg.games_per_match)
@@ -228,7 +230,10 @@ class TournamentEngine:
         if event_name == "reversi":
             return ReversiEvent(games_per_match=event_cfg.games_per_match)
         if event_name == "bullshit":
-            return BullshitEvent(games_per_match=event_cfg.games_per_match)
+            return BullshitEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+            )
         raise ValueError(f"Unknown event: {event_name!r}")
 
     def _get_time_limit_ms(self, model_name: str) -> int | None:
@@ -271,7 +276,7 @@ class TournamentEngine:
             event_name, 1, hash(deterministic_key) % 10000
         )
 
-        event = self._build_event(event_name, event_cfg)
+        event = self._build_event(event_name, event_cfg, num_players=len(models))
         event.reset(seed)
 
         player_ids = event.player_ids
@@ -296,6 +301,7 @@ class TournamentEngine:
 
         def _check_stuck_loop(pid: str, vtype: str, action: dict | None = None):
             """Increment streak and force-forfeit if stuck."""
+            nonlocal match_forfeit_ruling
             if action and vtype == "illegal_move":
                 vkey = (vtype, action.get("word", ""), str(action.get("position", "")))
             else:
@@ -307,6 +313,11 @@ class TournamentEngine:
                 _last_violation_key[pid] = vkey
             if _violation_streak[pid] >= STUCK_LOOP_LIMIT:
                 event.award_forfeit_wins(pid)
+                match_forfeit_ruling = "match_forfeit"
+                print(
+                    f"[FORFEIT] {player_models[pid]} forfeits match "
+                    f"(stuck-loop: {STUCK_LOOP_LIMIT} consecutive {vtype} violations)"
+                )
 
         def _handle_forfeit_turn(
             pid: str, vkind: ViolationKind
