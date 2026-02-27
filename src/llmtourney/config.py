@@ -51,6 +51,7 @@ class ForfeitEscalationConfig:
     strike_violations: list[str] = field(
         default_factory=lambda: ["timeout", "empty_response"]
     )
+    match_forfeit_scaling: bool = True  # scale threshold up for 7+ players
 
 
 @dataclass
@@ -134,6 +135,7 @@ def load_config(path: Path) -> TournamentConfig:
                 "strike_violations",
                 ["timeout", "empty_response"],
             ),
+            match_forfeit_scaling=fe_raw.get("match_forfeit_scaling", True),
         )
 
     return TournamentConfig(

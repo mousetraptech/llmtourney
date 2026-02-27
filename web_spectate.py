@@ -5210,12 +5210,20 @@ HOLDEM_HTML_PAGE = r"""<!DOCTYPE html>
   --border: #30363d;
   --text: #e6edf3;
   --dim: #7d8590;
-  --cyan: #58a6ff;
-  --magenta: #d2a8ff;
   --green: #3fb950;
   --red: #f85149;
   --yellow: #d29922;
   --felt: #1a3a1a;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #f0883e;
+  --pe: #f85149;
+  --pf: #a5d6ff;
+  --pg: #db61a2;
+  --ph: #7ee787;
+  --pi: #d29922;
+  --pj: #79c0ff;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -5225,7 +5233,7 @@ body {
   font-size: 13px;
   line-height: 1.4;
   padding: 12px;
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -5249,9 +5257,7 @@ body {
 }
 .badge-live { background: var(--green); color: #000; }
 .badge-final { background: var(--yellow); color: #000; }
-.player-a { color: var(--cyan); }
-.player-b { color: var(--magenta); }
-#matchup { font-size: 16px; font-weight: bold; }
+#matchup { font-size: 14px; font-weight: bold; }
 #sub-info { font-size: 12px; color: var(--dim); margin-top: 4px; }
 
 /* Main layout */
@@ -5275,38 +5281,50 @@ body {
   font-weight: bold;
 }
 
-/* Player section */
-.player-section {
-  padding: 10px 14px;
-  border-radius: 8px;
-  margin-bottom: 6px;
+/* Players grid */
+#players {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
 }
+.player-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.player-section.active-turn {
+  border-color: var(--green);
+  box-shadow: 0 0 6px rgba(63,185,80,0.3);
+}
+.player-section.folded { opacity: 0.45; }
+.player-section.busted { opacity: 0.25; }
 .player-name {
   font-weight: bold;
-  font-size: 14px;
-  margin-bottom: 4px;
+  font-size: 13px;
+  margin-bottom: 3px;
 }
 .chip-bar-container {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 0;
+  margin: 3px 0;
 }
 .chip-bar {
-  height: 14px;
+  height: 12px;
   border-radius: 3px;
   transition: width 0.5s ease;
   min-width: 2px;
 }
 .chip-count {
   font-weight: bold;
-  font-size: 14px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .hole-cards {
   display: flex;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 3px;
+  margin-top: 4px;
 }
 .dealer-btn {
   display: inline-block;
@@ -5318,13 +5336,26 @@ body {
   border-radius: 10px;
   margin-left: 6px;
 }
+.status-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: bold;
+  margin-left: 6px;
+}
+.tag-folded { background: var(--red); color: #fff; }
+.tag-allin { background: var(--yellow); color: #000; }
+.tag-busted { background: #30363d; color: var(--dim); }
+.tag-eliminated { background: #6e40c9; color: #fff; }
+.player-section.eliminated { opacity: 0.35; }
 .action-badge {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: bold;
-  margin-left: 8px;
+  margin-left: 6px;
 }
 .action-fold { background: var(--red); color: #fff; }
 .action-call { background: var(--green); color: #000; }
@@ -5336,13 +5367,12 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 52px;
-  border-radius: 5px;
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 13px;
   border: 2px solid #555;
-  position: relative;
 }
 .card-front {
   background: #f0f0f0;
@@ -5355,7 +5385,7 @@ body {
 .card-back::after {
   content: '?';
   color: rgba(255,255,255,0.3);
-  font-size: 18px;
+  font-size: 16px;
 }
 .suit-h, .suit-d { color: #d32f2f; }
 .suit-s, .suit-c { color: #222; }
@@ -5370,8 +5400,8 @@ body {
   background: var(--felt);
   border: 1px solid #2d5a2d;
   border-radius: 12px;
-  padding: 16px;
-  margin: 8px 0;
+  padding: 14px;
+  margin: 6px 0;
   text-align: center;
 }
 .community-cards {
@@ -5380,11 +5410,12 @@ body {
   justify-content: center;
   margin: 8px 0;
 }
+.community-cards .card { width: 38px; height: 52px; font-size: 15px; }
 .pot-display {
   font-size: 18px;
   font-weight: bold;
   color: var(--yellow);
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .street-badge {
   display: inline-block;
@@ -5393,13 +5424,13 @@ body {
   font-size: 11px;
   font-weight: bold;
   text-transform: uppercase;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .street-preflop { background: #30363d; color: var(--text); }
 .street-flop { background: #1f4d1f; color: var(--green); }
 .street-turn { background: #4d3d1f; color: var(--yellow); }
 .street-river { background: #3d1f1f; color: var(--red); }
-.street-showdown { background: #1f1f4d; color: var(--cyan); }
+.street-showdown { background: #1f1f4d; color: var(--pa); }
 
 /* Hand history */
 .hand-entry {
@@ -5438,7 +5469,7 @@ body {
 #final-panel { display: none; margin-bottom: 10px; text-align: center; }
 #final-panel.show { display: block; }
 .winner { font-size: 18px; font-weight: bold; margin-bottom: 4px; }
-.breakdown { font-size: 14px; color: var(--dim); }
+.breakdown { font-size: 13px; color: var(--dim); }
 .stats { font-size: 11px; color: var(--dim); margin-top: 4px; }
 
 /* Shot clock */
@@ -5449,6 +5480,7 @@ body {
   padding: 8px 14px;
   margin-bottom: 10px;
   text-align: center;
+  display: none;
 }
 #clock-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
 .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; }
@@ -5496,7 +5528,7 @@ body {
   <div id="sub-info"></div>
 </div>
 
-<div id="shot-clock" style="display:none">
+<div id="shot-clock">
   <div id="clock-label">SHOT CLOCK</div>
   <div id="clock-display" class="clock-display clock-ok">--</div>
   <div id="strike-info"></div>
@@ -5504,13 +5536,12 @@ body {
 
 <div class="main">
   <div class="table-area">
-    <div id="player-a-section" class="player-section panel"></div>
+    <div id="players"></div>
     <div class="community-area">
       <div id="street-label" class="street-badge street-preflop">PREFLOP</div>
       <div id="community-cards" class="community-cards"></div>
       <div id="pot-display" class="pot-display">Pot: 0</div>
     </div>
-    <div id="player-b-section" class="player-section panel"></div>
   </div>
   <div class="sidebar">
     <div class="panel" id="hand-history-panel">
@@ -5534,97 +5565,134 @@ body {
 </div>
 
 <script>
+// ── Dynamic player system ────────────────────────────────────────
+var PIDS = [];
+var LABELS = {};
+var COLORS = {};
+var _playersInitialized = false;
+var _COLOR_VARS = 'abcdefghij'.split('');
+
+function initPlayers(stacks) {
+  if (_playersInitialized) return;
+  PIDS = Object.keys(stacks).sort();
+  PIDS.forEach(function(pid) {
+    var suf = pid.replace('player_', '');
+    LABELS[pid] = suf.toUpperCase();
+    COLORS[pid] = 'var(--p' + suf + ')';
+  });
+
+  // Dynamic grid: 2p stacked, 3-4 = 2 cols, 5+ = 3 cols
+  var cols = PIDS.length <= 2 ? 1 : PIDS.length <= 4 ? 2 : 3;
+  var grid = document.getElementById('players');
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+
+  // Generate player panels
+  var html = '';
+  PIDS.forEach(function(pid) {
+    var suf = pid.replace('player_', '');
+    html += '<div class="player-section" id="section-' + suf + '"></div>';
+  });
+  grid.innerHTML = html;
+
+  // Init S per-player maps
+  PIDS.forEach(function(pid) {
+    S.models[pid] = S.models[pid] || '';
+    S.stacks[pid] = S.stacks[pid] || 0;
+    S.holeCards[pid] = S.holeCards[pid] || [];
+    S.violations[pid] = S.violations[pid] || 0;
+    S.emojis[pid] = S.emojis[pid] || '';
+    S.shotClock.strikes[pid] = S.shotClock.strikes[pid] || 0;
+  });
+  _playersInitialized = true;
+}
+
 // ── Emoji system ─────────────────────────────────────────────────
-const EMOJI_POOL = [
+var EMOJI_POOL = [
   '\u{1F525}','\u{1F9E0}','\u{1F47E}','\u{1F916}','\u{1F3AF}',
   '\u{1F680}','\u{1F40D}','\u{1F98A}','\u{1F43B}','\u{1F985}',
   '\u{1F409}','\u{1F3B2}','\u{1F9CA}','\u{1F30B}','\u{1F308}',
   '\u{1F52E}','\u{1F9F2}','\u{1F41D}','\u{1F95D}','\u{1F344}'
 ];
 function djb2(s) {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  var h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return h;
 }
-function pickEmojis(a, b) {
-  let ia = djb2(a) % EMOJI_POOL.length;
-  let ib = djb2(b) % EMOJI_POOL.length;
-  if (ib === ia) ib = (ia + 1) % EMOJI_POOL.length;
-  return { player_a: EMOJI_POOL[ia], player_b: EMOJI_POOL[ib] };
+function assignEmojis() {
+  var assigned = false;
+  PIDS.forEach(function(pid) {
+    if (S.models[pid] && !S.emojis[pid]) {
+      S.emojis[pid] = EMOJI_POOL[djb2(S.models[pid]) % EMOJI_POOL.length];
+      assigned = true;
+    }
+  });
 }
 
-// ── Card rendering helpers ───────────────────────────────────────
-const SUIT_SYMBOLS = { H: '\u2665', D: '\u2666', S: '\u2660', C: '\u2663' };
-const SUIT_CLASSES = { H: 'suit-h', D: 'suit-d', S: 'suit-s', C: 'suit-c' };
+// ── Card rendering ───────────────────────────────────────────────
+var SUIT_SYMBOLS = { H: '\u2665', D: '\u2666', S: '\u2660', C: '\u2663' };
+var SUIT_CLASSES = { H: 'suit-h', D: 'suit-d', S: 'suit-s', C: 'suit-c' };
 
 function renderCard(cardStr) {
-  // cardStr like "AH", "TD", "2S"
-  if (!cardStr || cardStr === '??') {
-    return '<div class="card card-back"></div>';
-  }
-  const rank = cardStr.slice(0, -1);
-  const suit = cardStr.slice(-1).toUpperCase();
-  const sym = SUIT_SYMBOLS[suit] || suit;
-  const cls = SUIT_CLASSES[suit] || '';
+  if (!cardStr || cardStr === '??') return '<div class="card card-back"></div>';
+  var rank = cardStr.slice(0, -1);
+  var suit = cardStr.slice(-1).toUpperCase();
+  var sym = SUIT_SYMBOLS[suit] || suit;
+  var cls = SUIT_CLASSES[suit] || '';
   return '<div class="card card-front ' + cls + '">' + rank + sym + '</div>';
 }
-
-function renderEmptyCard() {
-  return '<div class="card card-empty"></div>';
-}
-
-// ── Match state ──────────────────────────────────────────────────
-const S = {
-  matchId: '', modelA: '', modelB: '',
-  handNumber: 0,
-  totalHands: 50,
-  street: 'preflop',
-  pot: 0,
-  blinds: [1, 2],
-  stacks: { player_a: 200, player_b: 200 },
-  communityCards: [],
-  dealer: 'player_a',
-  holeCards: { player_a: [], player_b: [] },
-  lastAction: { playerId: '', action: '', amount: null },
-  handStartStacks: {},
-  currentHandLastPot: 0,
-  currentHandLastAction: '',
-  handHistory: [],  // last 8: {handNum, winnerModel, winnerId, margin, ending}
-  commentary: [],   // last 12
-  turnCount: 0,
-  violations: { player_a: 0, player_b: 0 },
-  finished: false,
-  finalScores: {},
-  highlightHands: [],
-  emojis: { player_a: '', player_b: '' },
-  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: { player_a: 0, player_b: 0 }, strikeLimit: null, waitingOn: '', lastTimeExceeded: false }
-};
-
-const rawLines = [];
-let turnQueue = [];
-let isReplaying = false;
+function renderEmptyCard() { return '<div class="card card-empty"></div>'; }
 
 function shortModel(name) {
   if (!name) return name;
   return name.replace(/^anthropic\/claude-/, '').replace(/^anthropic\//, '').replace(/^openai\//, '');
 }
-
-function assignEmojis() {
-  if (S.modelA && S.modelB && !S.emojis.player_a) {
-    S.emojis = pickEmojis(S.modelA, S.modelB);
-  }
-}
-
 function truncateReasoning(text, max) {
   max = max || 100;
   if (!text) return null;
-  const lines = text.trim().split('\n');
-  for (const line of lines) {
-    const t = line.trim();
+  var lines = text.trim().split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trim();
     if (t.length > 10) return t.length > max ? t.slice(0, max-3) + '...' : t;
   }
   return null;
 }
+
+// ── Match state ──────────────────────────────────────────────────
+var S = {
+  matchId: '',
+  models: {},
+  handNumber: 0,
+  totalHands: 50,
+  street: 'preflop',
+  pot: 0,
+  blinds: [1, 2],
+  stacks: {},
+  communityCards: [],
+  dealer: '',
+  activePlayer: '',
+  holeCards: {},
+  folded: [],
+  allIn: [],
+  busted: [],
+  deadSeats: [],
+  lastAction: { playerId: '', action: '', amount: null },
+  handStartStacks: {},
+  currentHandLastPot: 0,
+  currentHandLastAction: '',
+  handHistory: [],
+  commentary: [],
+  turnCount: 0,
+  violations: {},
+  finished: false,
+  finalScores: {},
+  highlightHands: [],
+  emojis: {},
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: {}, strikeLimit: null, waitingOn: '' }
+};
+
+var rawLines = [];
+var turnQueue = [];
+var isReplaying = false;
 
 // ── State machine ────────────────────────────────────────────────
 function processTurn(data) {
@@ -5632,12 +5700,10 @@ function processTurn(data) {
     S.finished = true;
     S.finalScores = data.final_scores || {};
     S.highlightHands = data.highlight_hands || [];
-    const pm = data.player_models || {};
-    if (pm.player_a) S.modelA = shortModel(pm.player_a);
-    if (pm.player_b) S.modelB = shortModel(pm.player_b);
+    var pm = data.player_models || {};
+    PIDS.forEach(function(pid) { if (pm[pid]) S.models[pid] = shortModel(pm[pid]); });
     assignEmojis();
-    // Record last hand if pending
-    const snap = data.final_snapshot || {};
+    var snap = data.final_snapshot || {};
     if (snap.stacks && S.handStartStacks && Object.keys(S.handStartStacks).length) {
       recordHandResult(snap.stacks);
     }
@@ -5645,222 +5711,239 @@ function processTurn(data) {
   }
 
   S.turnCount++;
-  const snap = data.state_snapshot || {};
-  const playerId = data.player_id || '';
-  const modelId = data.model_id || '';
+  var snap = data.state_snapshot || {};
+  var playerId = data.player_id || '';
+  var modelId = data.model_id || '';
+
+  // Initialize players from first snapshot
+  if (snap.stacks && !_playersInitialized) {
+    initPlayers(snap.stacks);
+  }
 
   if (!S.matchId) S.matchId = data.match_id || '';
-  if (playerId === 'player_a' && !S.modelA) S.modelA = shortModel(modelId);
-  else if (playerId === 'player_b' && !S.modelB) S.modelB = shortModel(modelId);
+  if (playerId && modelId) S.models[playerId] = shortModel(modelId);
   assignEmojis();
 
   // Shot clock
   if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
   if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
-  if (data.cumulative_strikes !== undefined) S.shotClock.strikes[playerId] = data.cumulative_strikes;
-  S.shotClock.lastTimeExceeded = !!data.time_exceeded;
+  if (data.cumulative_strikes !== undefined && playerId) S.shotClock.strikes[playerId] = data.cumulative_strikes;
   S.shotClock.lastTurnTime = Date.now();
-  S.shotClock.waitingOn = playerId === 'player_a' ? 'player_b' : 'player_a';
+  S.shotClock.waitingOn = snap.active_player || S.activePlayer;
 
-  const handNum = data.hand_number || snap.hand_number || 1;
+  var handNum = data.hand_number || snap.hand_number || 1;
 
   // Extract total hands from prompt
-  const prompt = data.prompt || '';
+  var prompt = data.prompt || '';
   if (prompt) {
-    const m = prompt.match(/Hand \d+ of (\d+)/);
+    var m = prompt.match(/Hand \d+ of (\d+)/);
     if (m) S.totalHands = parseInt(m[1]);
   }
 
-  // Detect hand transition -> record previous hand result
+  // Detect hand transition
   if (handNum > S.handNumber && S.handNumber > 0 && snap.stacks) {
     recordHandResult(snap.stacks);
   }
 
   // Track hand start stacks + reset hole cards on new hand
   if (handNum > S.handNumber || !Object.keys(S.handStartStacks).length) {
-    S.handStartStacks = { ...snap.stacks };
-    S.holeCards = { player_a: [], player_b: [] };
+    S.handStartStacks = {};
+    if (snap.stacks) { for (var k in snap.stacks) S.handStartStacks[k] = snap.stacks[k]; }
+    PIDS.forEach(function(pid) { S.holeCards[pid] = []; });
   }
 
-  // Extract hole cards from prompt text
+  // Extract hole cards from prompt
   if (playerId && prompt) {
-    const m = prompt.match(/Your hole cards:\s*(.+)/);
-    if (m) {
-      S.holeCards[playerId] = m[1].trim().split(/\s+/);
-    }
+    var hm = prompt.match(/Your hole cards:\s*(.+)/);
+    if (hm) S.holeCards[playerId] = hm[1].trim().split(/\s+/);
   }
 
-  // Update current state
+  // Update state
   S.handNumber = handNum;
   S.street = data.street || snap.street || 'preflop';
   S.pot = snap.pot !== undefined ? snap.pot : S.pot;
-  if (snap.stacks) S.stacks = { ...snap.stacks };
+  if (snap.stacks) { S.stacks = {}; for (var sk in snap.stacks) S.stacks[sk] = snap.stacks[sk]; }
   S.communityCards = snap.community_cards || S.communityCards;
   S.dealer = snap.dealer || S.dealer;
+  S.activePlayer = snap.active_player || S.activePlayer;
   if (snap.blinds) S.blinds = snap.blinds;
+  S.folded = snap.folded || S.folded;
+  S.allIn = snap.all_in || S.allIn;
+  S.busted = snap.busted || S.busted;
+  S.deadSeats = snap.dead_seats || S.deadSeats;
 
   // Parse action
-  const parsed = data.parsed_action || {};
-  const action = parsed.action || '???';
-  const amount = parsed.amount;
-  const violation = data.violation;
+  var parsed = data.parsed_action || {};
+  var action = parsed.action || '???';
+  var amount = parsed.amount;
+  var violation = data.violation;
 
   if (data.validation_result === 'forfeit') {
-    S.lastAction = { playerId, action: 'forfeit', amount: null };
+    S.lastAction = { playerId: playerId, action: 'forfeit', amount: null };
   } else {
-    S.lastAction = { playerId, action, amount };
+    S.lastAction = { playerId: playerId, action: action, amount: amount };
   }
-
   S.currentHandLastPot = snap.pot || 0;
   S.currentHandLastAction = action;
 
-  // Violations
   if (violation) S.violations[playerId] = (S.violations[playerId] || 0) + 1;
 
   // Commentary
-  const reasoning = truncateReasoning(data.reasoning_output);
+  var reasoning = truncateReasoning(data.reasoning_output);
+  var commentAction = S.lastAction.action;
+  if (data.ruling === 'eliminate_player') commentAction = 'ELIMINATED (dead seat)';
   S.commentary.push({
-    turnNumber: S.turnCount,
-    handNumber: handNum,
-    street: S.street,
-    model: modelId,
-    playerId,
-    action: S.lastAction.action,
-    amount: S.lastAction.amount,
-    reasoning,
-    latencyMs: data.latency_ms || 0,
+    turnNumber: S.turnCount, handNumber: handNum, street: S.street,
+    model: modelId, playerId: playerId,
+    action: commentAction, amount: S.lastAction.amount,
+    reasoning: reasoning, latencyMs: data.latency_ms || 0,
     isViolation: !!violation
   });
-  if (S.commentary.length > 12) S.commentary.shift();
+  if (S.commentary.length > 16) S.commentary.shift();
 }
 
 function recordHandResult(newStacks) {
   if (!S.handStartStacks || !newStacks) return;
-  const deltaA = (newStacks.player_a || 0) - (S.handStartStacks.player_a || 0);
-  const deltaB = (newStacks.player_b || 0) - (S.handStartStacks.player_b || 0);
-
-  let winnerId, margin;
-  if (deltaA > 0) { winnerId = 'player_a'; margin = deltaA; }
-  else if (deltaB > 0) { winnerId = 'player_b'; margin = deltaB; }
-  else return; // split or no change
-
-  const winnerModel = winnerId === 'player_a' ? S.modelA : S.modelB;
-  const ending = S.currentHandLastAction === 'fold' ? 'fold' : 'showdown';
-
+  // Find biggest winner
+  var bestPid = null, bestDelta = 0;
+  PIDS.forEach(function(pid) {
+    var delta = (newStacks[pid] || 0) - (S.handStartStacks[pid] || 0);
+    if (delta > bestDelta) { bestPid = pid; bestDelta = delta; }
+  });
+  if (!bestPid) return;
+  var ending = S.currentHandLastAction === 'fold' ? 'fold' : 'showdown';
   S.handHistory.push({
     handNum: S.handNumber,
-    winnerModel,
-    winnerId,
-    margin,
-    ending,
+    winnerModel: S.models[bestPid] || LABELS[bestPid] || '?',
+    winnerId: bestPid,
+    margin: bestDelta,
+    ending: ending,
     pot: S.currentHandLastPot
   });
-  if (S.handHistory.length > 8) S.handHistory.shift();
+  if (S.handHistory.length > 10) S.handHistory.shift();
 }
 
 // ── Rendering ────────────────────────────────────────────────────
 function renderHeader() {
-  const badge = document.getElementById('badge');
+  var badge = document.getElementById('badge');
   badge.textContent = S.finished ? 'FINAL' : 'LIVE';
   badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
 
-  const ea = S.emojis.player_a || '';
-  const eb = S.emojis.player_b || '';
-  document.getElementById('matchup').innerHTML =
-    '<span class="player-a">' + ea + ' ' + (S.modelA || '???') + '</span>' +
-    ' <span style="color:var(--dim)">vs</span> ' +
-    '<span class="player-b">' + eb + ' ' + (S.modelB || '???') + '</span>';
+  // Build matchup string from all models
+  var parts = [];
+  PIDS.forEach(function(pid) {
+    var emoji = S.emojis[pid] || '';
+    var name = S.models[pid] || LABELS[pid] || '?';
+    parts.push('<span style="color:' + COLORS[pid] + '">' + emoji + ' ' + name + '</span>');
+  });
+  document.getElementById('matchup').innerHTML = parts.join(' <span style="color:var(--dim)">\u00b7</span> ');
 
-  const streetLabel = S.street.charAt(0).toUpperCase() + S.street.slice(1);
+  var streetLabel = S.street.charAt(0).toUpperCase() + S.street.slice(1);
   document.getElementById('sub-info').innerHTML =
     '<strong>Hand ' + S.handNumber + ' of ' + S.totalHands + '</strong>' +
-    ' <span style="color:var(--dim)">|</span> ' +
-    streetLabel +
-    ' <span style="color:var(--dim)">|</span> ' +
-    '<span style="color:var(--yellow)">Pot: ' + S.pot + '</span>' +
-    ' <span style="color:var(--dim)">|</span> ' +
-    'Blinds: ' + S.blinds[0] + '/' + S.blinds[1];
+    ' <span style="color:var(--dim)">|</span> ' + streetLabel +
+    ' <span style="color:var(--dim)">|</span> <span style="color:var(--yellow)">Pot: ' + S.pot + '</span>' +
+    ' <span style="color:var(--dim)">|</span> Blinds: ' + S.blinds[0] + '/' + S.blinds[1];
 }
 
-function renderPlayerSection(pid, elId) {
-  const el = document.getElementById(elId);
-  const name = pid === 'player_a' ? (S.modelA || 'Player A') : (S.modelB || 'Player B');
-  const emoji = S.emojis[pid] || '';
-  const color = pid === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
-  const chips = S.stacks[pid] || 0;
-  const total = (S.stacks.player_a || 0) + (S.stacks.player_b || 0);
-  const pct = total > 0 ? Math.max(1, (chips / total) * 100) : 50;
+function renderPlayers() {
+  if (!PIDS.length) return;
+  var totalChips = 0;
+  PIDS.forEach(function(pid) { totalChips += (S.stacks[pid] || 0); });
 
-  const isDealer = S.dealer === pid;
-  const dealerHTML = isDealer ? '<span class="dealer-btn">D</span>' : '';
+  PIDS.forEach(function(pid) {
+    var suf = pid.replace('player_', '');
+    var el = document.getElementById('section-' + suf);
+    if (!el) return;
+    var name = S.models[pid] || 'Player ' + LABELS[pid];
+    var emoji = S.emojis[pid] || '';
+    var color = COLORS[pid];
+    var chips = S.stacks[pid] || 0;
+    var pct = totalChips > 0 ? Math.max(1, (chips / totalChips) * 100) : 50;
 
-  // Last action badge
-  let actionHTML = '';
-  if (S.lastAction.playerId === pid && S.turnCount > 0) {
-    const a = S.lastAction.action;
-    const amt = S.lastAction.amount;
-    if (a === 'fold') actionHTML = '<span class="action-badge action-fold">FOLD</span>';
-    else if (a === 'raise') actionHTML = '<span class="action-badge action-raise">RAISE ' + (amt || '') + '</span>';
-    else if (a === 'call' && amt === 0) actionHTML = '<span class="action-badge action-check">CHECK</span>';
-    else if (a === 'call') actionHTML = '<span class="action-badge action-call">CALL ' + (amt || '') + '</span>';
-    else if (a === 'forfeit') actionHTML = '<span class="action-badge action-fold">FORFEIT</span>';
-  }
+    var isBusted = S.busted.indexOf(pid) >= 0;
+    var isDead = S.deadSeats.indexOf(pid) >= 0;
+    var isFolded = S.folded.indexOf(pid) >= 0;
+    var isAllIn = S.allIn.indexOf(pid) >= 0;
+    var isActive = S.activePlayer === pid;
 
-  // Hole cards
-  const cards = S.holeCards[pid] || [];
-  let cardsHTML = '';
-  if (cards.length) {
-    cardsHTML = '<div class="hole-cards">' + cards.map(c => renderCard(c)).join('') + '</div>';
-  } else if (S.handNumber > 0) {
-    cardsHTML = '<div class="hole-cards">' + renderCard('??') + renderCard('??') + '</div>';
-  }
+    // Section classes
+    var cls = 'player-section';
+    if (isBusted) cls += ' busted';
+    else if (isDead) cls += ' eliminated';
+    else if (isFolded) cls += ' folded';
+    if (isActive && !S.finished) cls += ' active-turn';
+    el.className = cls;
 
-  // Violations
-  const v = S.violations[pid] || 0;
-  const vHTML = v > 0 ? ' <span style="color:var(--red);font-size:11px">' + v + ' violations</span>' : '';
+    var dealerHTML = S.dealer === pid ? '<span class="dealer-btn">D</span>' : '';
 
-  el.innerHTML =
-    '<div class="player-name" style="color:' + color + '">' + emoji + ' ' + name + dealerHTML + actionHTML + '</div>' +
-    '<div class="chip-bar-container">' +
-      '<div class="chip-bar" style="width:' + pct + '%;background:' + color + '"></div>' +
-      '<span class="chip-count" style="color:' + color + '">' + chips + '</span>' +
-    '</div>' +
-    cardsHTML + vHTML;
+    // Status tags
+    var statusHTML = '';
+    if (isBusted) statusHTML = '<span class="status-tag tag-busted">OUT</span>';
+    else if (isDead) statusHTML = '<span class="status-tag tag-eliminated">ELIMINATED</span>';
+    else if (isFolded) statusHTML = '<span class="status-tag tag-folded">FOLD</span>';
+    else if (isAllIn) statusHTML = '<span class="status-tag tag-allin">ALL-IN</span>';
+
+    // Last action badge
+    var actionHTML = '';
+    if (S.lastAction.playerId === pid && S.turnCount > 0 && !isBusted) {
+      var a = S.lastAction.action;
+      var amt = S.lastAction.amount;
+      if (a === 'fold') actionHTML = '<span class="action-badge action-fold">FOLD</span>';
+      else if (a === 'raise') actionHTML = '<span class="action-badge action-raise">RAISE ' + (amt || '') + '</span>';
+      else if (a === 'call' && amt === 0) actionHTML = '<span class="action-badge action-check">CHECK</span>';
+      else if (a === 'call') actionHTML = '<span class="action-badge action-call">CALL ' + (amt || '') + '</span>';
+      else if (a === 'forfeit') actionHTML = '<span class="action-badge action-fold">FORFEIT</span>';
+    }
+
+    // Hole cards
+    var cards = S.holeCards[pid] || [];
+    var cardsHTML = '';
+    if (cards.length) {
+      cardsHTML = '<div class="hole-cards">' + cards.map(function(c) { return renderCard(c); }).join('') + '</div>';
+    } else if (S.handNumber > 0 && !isBusted) {
+      cardsHTML = '<div class="hole-cards">' + renderCard('??') + renderCard('??') + '</div>';
+    }
+
+    var v = S.violations[pid] || 0;
+    var vHTML = v > 0 ? ' <span style="color:var(--red);font-size:10px">' + v + '\u26a0</span>' : '';
+
+    el.innerHTML =
+      '<div class="player-name" style="color:' + color + '">' + emoji + ' ' + name + dealerHTML + statusHTML + actionHTML + vHTML + '</div>' +
+      '<div class="chip-bar-container">' +
+        '<div class="chip-bar" style="width:' + pct + '%;background:' + color + '"></div>' +
+        '<span class="chip-count" style="color:' + color + '">' + chips + '</span>' +
+      '</div>' + cardsHTML;
+  });
 }
 
 function renderCommunity() {
-  const cc = document.getElementById('community-cards');
-  let html = '';
-  for (let i = 0; i < 5; i++) {
-    if (i < S.communityCards.length) {
-      html += renderCard(S.communityCards[i]);
-    } else {
-      html += renderEmptyCard();
-    }
+  var cc = document.getElementById('community-cards');
+  var html = '';
+  for (var i = 0; i < 5; i++) {
+    if (i < S.communityCards.length) html += renderCard(S.communityCards[i]);
+    else html += renderEmptyCard();
   }
   cc.innerHTML = html;
 
-  // Street label
-  const sl = document.getElementById('street-label');
-  const street = S.street || 'preflop';
+  var sl = document.getElementById('street-label');
+  var street = S.street || 'preflop';
   sl.textContent = street.toUpperCase();
   sl.className = 'street-badge street-' + street;
-
-  // Pot
   document.getElementById('pot-display').innerHTML = 'Pot: <strong>' + S.pot + '</strong>';
 }
 
 function renderHandHistory() {
-  const el = document.getElementById('hand-history');
+  var el = document.getElementById('hand-history');
   if (!S.handHistory.length) {
     el.innerHTML = '<span style="color:var(--dim);font-style:italic">No completed hands</span>';
     return;
   }
-  el.innerHTML = [...S.handHistory].reverse().map(function(h) {
-    const color = h.winnerId === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
-    const hl = S.highlightHands.includes(h.handNum) ? '<span style="color:var(--yellow)">\u2605 </span>' : '';
+  el.innerHTML = S.handHistory.slice().reverse().map(function(h) {
+    var color = COLORS[h.winnerId] || 'var(--text)';
+    var hl = S.highlightHands.indexOf(h.handNum) >= 0 ? '<span style="color:var(--yellow)">\u2605 </span>' : '';
     return '<div class="hand-entry">' +
-      '<span>' + hl + 'Hand ' + h.handNum + '</span>' +
+      '<span>' + hl + 'H' + h.handNum + '</span>' +
       '<span class="hand-winner" style="color:' + color + '">' + (h.winnerModel || '?') + '</span>' +
       '<span class="hand-margin">+' + h.margin + '</span>' +
       '<span class="hand-ending">(' + h.ending + ')</span>' +
@@ -5869,64 +5952,79 @@ function renderHandHistory() {
 }
 
 function renderCommentary() {
-  const el = document.getElementById('commentary');
+  var el = document.getElementById('commentary');
   if (!S.commentary.length) {
     el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting for action...</span>';
     return;
   }
-  el.innerHTML = [...S.commentary].reverse().map(function(e) {
-    const color = e.playerId === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
-    let actionHTML;
-    if (e.isViolation) {
-      actionHTML = '<span style="color:var(--red);font-weight:bold">violation!</span>';
-    } else if (e.action === 'fold') {
-      actionHTML = '<span style="color:var(--red)">fold</span>';
-    } else if (e.action === 'raise') {
-      actionHTML = '<span style="color:var(--yellow)">raise ' + (e.amount || '') + '</span>';
-    } else if (e.action === 'call') {
-      actionHTML = '<span style="color:var(--green)">' + (e.amount === 0 ? 'check' : 'call ' + (e.amount || '')) + '</span>';
-    } else {
-      actionHTML = '<span style="color:var(--dim)">' + e.action + '</span>';
-    }
-    const latency = e.latencyMs > 100 ? ' <span style="color:var(--dim)">(' + (e.latencyMs/1000).toFixed(1) + 's)</span>' : '';
-    const reason = e.reasoning ? '<span class="reasoning">"' + e.reasoning + '"</span>' : '';
+  el.innerHTML = S.commentary.slice().reverse().map(function(e) {
+    var color = COLORS[e.playerId] || 'var(--dim)';
+    var actionHTML;
+    if (e.isViolation) actionHTML = '<span style="color:var(--red);font-weight:bold">violation!</span>';
+    else if (e.action === 'fold') actionHTML = '<span style="color:var(--red)">fold</span>';
+    else if (e.action === 'raise') actionHTML = '<span style="color:var(--yellow)">raise ' + (e.amount || '') + '</span>';
+    else if (e.action === 'call') actionHTML = '<span style="color:var(--green)">' + (e.amount === 0 ? 'check' : 'call ' + (e.amount || '')) + '</span>';
+    else actionHTML = '<span style="color:var(--dim)">' + e.action + '</span>';
+    var latency = e.latencyMs > 100 ? ' <span style="color:var(--dim)">(' + (e.latencyMs/1000).toFixed(1) + 's)</span>' : '';
+    var reason = e.reasoning ? '<span class="reasoning">"' + e.reasoning + '"</span>' : '';
     return '<div class="comment-entry">' +
       '<span style="color:var(--dim)">H' + e.handNumber + ' ' + e.street + '</span> ' +
       '<span style="color:' + color + ';font-weight:bold">' + e.model + '</span> ' +
-      actionHTML + latency + reason +
-    '</div>';
+      actionHTML + latency + reason + '</div>';
   }).join('');
 }
 
 function renderFinal() {
-  const el = document.getElementById('final-panel');
+  var el = document.getElementById('final-panel');
   if (!S.finished) { el.className = 'panel'; return; }
   el.className = 'panel show';
-  const sa = S.finalScores.player_a || 0;
-  const sb = S.finalScores.player_b || 0;
 
-  let html;
-  if (sa === sb) {
-    html = '<div class="winner" style="color:var(--yellow)">DRAW</div><div class="breakdown">' + sa + ' chips each</div>';
+  // Sort players by final score
+  var sorted = PIDS.slice().sort(function(a, b) {
+    return (S.finalScores[b] || 0) - (S.finalScores[a] || 0);
+  });
+
+  var topScore = S.finalScores[sorted[0]] || 0;
+  var winners = sorted.filter(function(pid) { return (S.finalScores[pid] || 0) === topScore; });
+
+  var html;
+  if (winners.length > 1 && topScore > 0) {
+    html = '<div class="winner" style="color:var(--yellow)">TIE</div>';
   } else {
-    const wPid = sa > sb ? 'player_a' : 'player_b';
-    const emoji = S.emojis[wPid] || '';
-    const wName = wPid === 'player_a' ? S.modelA : S.modelB;
-    const wColor = wPid === 'player_a' ? 'var(--cyan)' : 'var(--magenta)';
-    html = '<div class="winner" style="color:' + wColor + '">' + emoji + ' ' + wName + ' WINS</div>' +
-           '<div class="breakdown">' + sa + ' \u2013 ' + sb + ' chips</div>';
+    var wPid = sorted[0];
+    var emoji = S.emojis[wPid] || '';
+    var wName = S.models[wPid] || LABELS[wPid] || '?';
+    html = '<div class="winner" style="color:' + COLORS[wPid] + '">' + emoji + ' ' + wName + ' WINS</div>';
   }
-  const va = S.violations.player_a || 0, vb = S.violations.player_b || 0;
-  if (va + vb > 0) html += '<div class="stats" style="color:var(--red)">Violations: A:' + va + ' B:' + vb + '</div>';
-  const handsPlayed = S.handHistory.length;
-  html += '<div class="stats">' + handsPlayed + ' hands recorded over ' + S.turnCount + ' turns</div>';
+
+  // Standings
+  html += '<div class="breakdown">';
+  sorted.forEach(function(pid, i) {
+    var name = S.models[pid] || LABELS[pid] || '?';
+    var score = S.finalScores[pid] || 0;
+    html += '<span style="color:' + COLORS[pid] + '">' + name + ': ' + score + '</span>';
+    if (i < sorted.length - 1) html += ' \u00b7 ';
+  });
+  html += '</div>';
+
+  var totalViolations = 0;
+  PIDS.forEach(function(pid) { totalViolations += (S.violations[pid] || 0); });
+  if (totalViolations > 0) {
+    html += '<div class="stats" style="color:var(--red)">Violations: ';
+    PIDS.forEach(function(pid) {
+      var v = S.violations[pid] || 0;
+      if (v > 0) html += LABELS[pid] + ':' + v + ' ';
+    });
+    html += '</div>';
+  }
+  html += '<div class="stats">' + S.handHistory.length + ' hands recorded over ' + S.turnCount + ' turns</div>';
   document.getElementById('final-content').innerHTML = html;
 }
 
 function renderShotClock() {
   var el = document.getElementById('shot-clock');
   if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
-  el.style.display = '';
+  el.style.display = 'block';
   var display = document.getElementById('clock-display');
   var label = document.getElementById('clock-label');
   var strikeEl = document.getElementById('strike-info');
@@ -5936,18 +6034,22 @@ function renderShotClock() {
     var secs = remaining / 1000;
     display.textContent = secs.toFixed(1) + 's';
     var pct = remaining / S.shotClock.timeLimitMs;
-    display.className = 'clock-display ' + (pct <= 0 ? 'clock-danger' : pct < 0.2 ? 'clock-danger' : pct < 0.5 ? 'clock-warn' : 'clock-ok');
+    display.className = 'clock-display ' + (pct <= 0 ? 'clock-danger' : pct < 0.17 ? 'clock-danger' : pct < 0.33 ? 'clock-warn' : 'clock-ok');
   } else {
     display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
     display.className = 'clock-display clock-ok';
   }
-  var wModel = S.shotClock.waitingOn === 'player_a' ? (S.modelA || 'A') : (S.modelB || 'B');
+  var waitPid = S.shotClock.waitingOn;
+  var wModel = (waitPid && S.models[waitPid]) ? S.models[waitPid] : (waitPid ? LABELS[waitPid] || waitPid : '');
   label.textContent = S.finished ? 'SHOT CLOCK' : 'SHOT CLOCK \u00b7 ' + wModel;
-  if (S.shotClock.strikeLimit) {
-    var sA = S.shotClock.strikes.player_a || 0;
-    var sB = S.shotClock.strikes.player_b || 0;
-    var nA = S.modelA || 'A', nB = S.modelB || 'B';
-    strikeEl.innerHTML = '<span class="player-a">' + nA + ': ' + sA + '/' + S.shotClock.strikeLimit + '</span> \u00b7 <span class="player-b">' + nB + ': ' + sB + '/' + S.shotClock.strikeLimit + '</span>';
+  if (S.shotClock.strikeLimit && PIDS.length) {
+    var parts = [];
+    PIDS.forEach(function(pid) {
+      var strikes = S.shotClock.strikes[pid] || 0;
+      var name = S.models[pid] || LABELS[pid] || pid;
+      parts.push('<span style="color:' + COLORS[pid] + '">' + name + ': ' + strikes + '/' + S.shotClock.strikeLimit + '</span>');
+    });
+    strikeEl.innerHTML = parts.join(' \u00b7 ');
   } else { strikeEl.innerHTML = ''; }
 }
 
@@ -5964,9 +6066,8 @@ function renderFooter() {
 function renderAll() {
   renderHeader();
   renderShotClock();
-  renderPlayerSection('player_a', 'player-a-section');
+  renderPlayers();
   renderCommunity();
-  renderPlayerSection('player_b', 'player-b-section');
   renderHandHistory();
   renderCommentary();
   renderFinal();
@@ -6013,12 +6114,8 @@ function startSSE() {
     rawLines.push(line);
     try {
       var data = JSON.parse(line);
-      if (isReplaying) {
-        turnQueue.push(data);
-      } else {
-        processTurn(data);
-        renderAll();
-      }
+      if (isReplaying) { turnQueue.push(data); }
+      else { processTurn(data); renderAll(); }
     } catch(err) {}
     document.getElementById('line-count').textContent = rawLines.length;
   };
@@ -6046,14 +6143,10 @@ turnQueue = [];
 startSSE();
 
 setTimeout(function() {
-  if (turnQueue.length > 0) {
-    drainQueue();
-  } else {
-    isReplaying = false;
-  }
+  if (turnQueue.length > 0) drainQueue();
+  else isReplaying = false;
 }, 300);
 
-// Shot clock countdown
 setInterval(function() {
   if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
 }, 100);

@@ -1,18 +1,21 @@
-"""Pot-limit heads-up Texas Hold'em engine.
+"""Pot-limit Texas Hold'em engine (2-9 players).
 
-Implements the Event ABC for a full heads-up Hold'em match:
+Implements the Event ABC for a full Hold'em match:
 - Pot-limit betting with correct min/max raise calculation
-- Seat rotation (SB/dealer alternates each hand)
+- Seat rotation with proper blind posting (heads-up and multi-way)
 - Street transitions: PREFLOP -> FLOP -> TURN -> RIVER -> SHOWDOWN
+- Side pot calculation and distribution for multi-way all-ins
 - Showdown using the hand evaluator
 - Hand-over-hand play for configurable number of hands
-- Bust-out detection
+- Bust-out detection and elimination
 - Highlight detection for interesting hands
 """
 
 from __future__ import annotations
 
 import random
+import string
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -20,12 +23,95 @@ from llmtourney.events.base import Event, ValidationResult
 from llmtourney.events.holdem.evaluator import Card, best_five, evaluate_hand
 from llmtourney.core.schemas import load_schema
 
-__all__ = ["HoldemEvent"]
+__all__ = ["HoldemEvent", "SidePot", "build_side_pots", "distribute_pots"]
 
 # Standard 52-card deck as string representations
 RANKS = "23456789TJQKA"
 SUITS = "hdcs"
 FULL_DECK = [f"{r}{s}" for r in RANKS for s in SUITS]
+
+
+# ------------------------------------------------------------------
+# Side pot calculation
+# ------------------------------------------------------------------
+
+@dataclass
+class SidePot:
+    """A pot with an amount and the set of players eligible to win it."""
+    amount: int
+    eligible: set[str]
+
+
+def build_side_pots(invested: dict[str, int], folded: set[str]) -> list[SidePot]:
+    """Build layered side pots from player investments.
+
+    Each layer corresponds to a unique investment level. Players who invested
+    at least that level contribute to the layer. Only non-folded contributors
+    are eligible to win.
+
+    Returns pots ordered from main pot (smallest investment level) to largest side pot.
+    """
+    if not invested:
+        return []
+
+    # Get sorted unique non-zero investment levels
+    levels = sorted(set(v for v in invested.values() if v > 0))
+    if not levels:
+        return []
+
+    pots: list[SidePot] = []
+    prev_level = 0
+
+    for level in levels:
+        increment = level - prev_level
+        if increment <= 0:
+            continue
+
+        # Count players who invested at or above this level
+        contributors = [pid for pid, inv in invested.items() if inv >= level]
+        amount = increment * len(contributors)
+
+        # Eligible = contributors who haven't folded
+        eligible = {pid for pid in contributors if pid not in folded}
+
+        if amount > 0:
+            pots.append(SidePot(amount=amount, eligible=eligible))
+
+        prev_level = level
+
+    return pots
+
+
+def distribute_pots(side_pots: list[SidePot], hand_scores: dict[str, int]) -> dict[str, int]:
+    """Distribute side pots to winners based on hand scores.
+
+    For each pot, the eligible player(s) with the best (highest) score win.
+    Ties split evenly; remainder chips go to the first tied player (positional).
+
+    Returns {player_id: total_chips_won}.
+    """
+    winnings: dict[str, int] = {}
+
+    for pot in side_pots:
+        if not pot.eligible:
+            continue
+
+        # Find best score among eligible players
+        eligible_scores = {pid: hand_scores[pid] for pid in pot.eligible if pid in hand_scores}
+        if not eligible_scores:
+            continue
+
+        best_score = max(eligible_scores.values())
+        winners = [pid for pid, score in eligible_scores.items() if score == best_score]
+
+        share = pot.amount // len(winners)
+        remainder = pot.amount - share * len(winners)
+
+        for i, pid in enumerate(winners):
+            won = share + (1 if i == 0 else 0) * remainder
+            winnings[pid] = winnings.get(pid, 0) + won
+
+    return winnings
 
 
 class Street(Enum):
@@ -48,7 +134,7 @@ def _card_str_to_card(s: str) -> Card:
 
 
 class HoldemEvent(Event):
-    """Pot-limit heads-up Texas Hold'em match engine.
+    """Pot-limit Texas Hold'em match engine (2-9 players).
 
     Parameters
     ----------
@@ -58,6 +144,8 @@ class HoldemEvent(Event):
         Starting chip count for each player (default 200).
     blinds : tuple[int, int]
         Small blind and big blind amounts (default (1, 2)).
+    num_players : int
+        Number of players, 2-9 (default 2 for backward compat).
     """
 
     def __init__(
@@ -66,12 +154,18 @@ class HoldemEvent(Event):
         starting_stack: int = 200,
         blinds: tuple[int, int] = (1, 2),
         blind_schedule: list[tuple[int, int, int]] | None = None,
+        num_players: int = 2,
     ) -> None:
         self._hands_per_match = hands_per_match
         self._starting_stack = starting_stack
         self._base_blinds = blinds
         self._blinds = blinds
         self._blind_schedule = blind_schedule  # [(hand, small, big), ...]
+        self._num_players = num_players
+
+        # Dynamic player IDs and labels
+        self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
+        self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
 
         # Load action schema
         schema_path = Path(__file__).parent / "schema.json"
@@ -91,6 +185,12 @@ class HoldemEvent(Event):
         self._community: list[str] = []
         self._deck: list[str] = []
         self._deck_idx: int = 0
+
+        # N-player hand state
+        self._folded: set[str] = set()
+        self._busted: set[str] = set()
+        self._dead_seats: set[str] = set()  # forfeit-eliminated, post blinds until broke
+        self._all_in: set[str] = set()
 
         # Betting state for current street
         self._bets: dict[str, int] = {}  # total chips bet this street per player
@@ -113,13 +213,12 @@ class HoldemEvent(Event):
     def reset(self, seed: int) -> None:
         """Initialize/reset the match state with the given seed."""
         self._rng = random.Random(seed)
-        self._stacks = {
-            "player_a": self._starting_stack,
-            "player_b": self._starting_stack,
-        }
+        self._stacks = {pid: self._starting_stack for pid in self._player_ids}
         self._hand_number = 0
-        self._dealer = "player_a"  # player_a is dealer/SB for hand 1
+        self._dealer = self._player_ids[0]  # first player is dealer for hand 1
         self._terminal = False
+        self._busted = set()
+        self._dead_seats = set()
         self._hand_history = []
         self._pot_totals = []
         self._highlight_hands = []
@@ -132,27 +231,48 @@ class HoldemEvent(Event):
 
     def get_prompt(self, player_id: str) -> str:
         """Generate the prompt for the given player."""
-        opponent = self._opponent(player_id)
-        label = "A" if player_id == "player_a" else "B"
+        label = self._player_labels[player_id]
 
         hole_str = " ".join(self._hole_cards.get(player_id, []))
         community_str = " ".join(self._community) if self._community else "none yet"
 
-        # Build betting history for this street
         actions_str = self._format_actions()
-
-        # Calculate legal action details
         call_cost = self._call_amount(player_id)
         min_raise, max_raise = self._raise_bounds(player_id)
 
+        n = len(self._active_players())
+        intro = f"You are playing Pot-Limit Texas Hold'em with {n} players. You are Player {label}."
+
+        # Build player stacks display
+        stack_lines = []
+        for pid in self._player_ids:
+            plabel = self._player_labels[pid]
+            stack = self._stacks[pid] + self._invested.get(pid, 0)
+            if pid == player_id:
+                status = "(you)"
+            elif pid in self._busted:
+                status = "(busted)"
+            elif pid in self._dead_seats:
+                status = "(eliminated)"
+            elif pid in self._folded:
+                status = "(folded)"
+            elif pid in self._all_in:
+                status = "(all-in)"
+            else:
+                status = ""
+            stack_lines.append(f"  Player {plabel}: {stack} chips {status}".rstrip())
+
         lines = [
-            f"You are playing Pot-Limit Texas Hold'em. You are Player {label}.",
+            intro,
             "",
             "Match state:",
             f"- Hand {self._hand_number} of {self._hands_per_match}",
-            f"- Your stack: {self._stacks[player_id]} chips | Opponent stack: {self._stacks[opponent]} chips",
             f"- Pot: {self._pot} chips",
             f"- Blinds: {self._blinds[0]}/{self._blinds[1]}",
+            "- Stacks:",
+        ]
+        lines.extend(stack_lines)
+        lines.extend([
             "",
             f"Your hole cards: {hole_str}",
             f"Community cards: {community_str}",
@@ -160,7 +280,7 @@ class HoldemEvent(Event):
             "",
             "Legal actions:",
             "- fold",
-        ]
+        ])
 
         if call_cost > 0:
             lines.append(f"- call (cost: {call_cost} chips)")
@@ -234,7 +354,6 @@ class HoldemEvent(Event):
 
         if act == "fold":
             self._do_fold(player_id)
-            return  # Fold resolves the hand immediately
         elif act == "call":
             self._do_call(player_id)
         elif act == "raise":
@@ -258,10 +377,7 @@ class HoldemEvent(Event):
 
     def get_scores(self) -> dict[str, float]:
         """Return final chip counts as scores."""
-        return {
-            "player_a": float(self._stacks["player_a"]),
-            "player_b": float(self._stacks["player_b"]),
-        }
+        return {pid: float(self._stacks[pid]) for pid in self._player_ids}
 
     def get_state_snapshot(self) -> dict:
         """Return a serializable snapshot of current game state.
@@ -272,7 +388,7 @@ class HoldemEvent(Event):
         """
         reported_stacks = {
             pid: self._stacks[pid] + self._invested.get(pid, 0)
-            for pid in ("player_a", "player_b")
+            for pid in self._player_ids
         }
         return {
             "hand_number": self._hand_number,
@@ -284,11 +400,16 @@ class HoldemEvent(Event):
             "active_player": self._active_player,
             "terminal": self._terminal,
             "blinds": list(self._blinds),
+            "num_players": self._num_players,
+            "folded": sorted(self._folded),
+            "all_in": sorted(self._all_in),
+            "busted": sorted(self._busted),
+            "dead_seats": sorted(self._dead_seats),
         }
 
     @property
     def player_ids(self) -> list[str]:
-        return ["player_a", "player_b"]
+        return list(self._player_ids)
 
     @property
     def action_schema(self) -> dict:
@@ -300,13 +421,40 @@ class HoldemEvent(Event):
         self._terminal = True
 
     def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        """Award all chips (including current pot) to opponent."""
-        opponent = self._opponent(forfeiting_player_id)
-        total = self._stacks["player_a"] + self._stacks["player_b"] + self._pot
-        self._stacks[opponent] = total
-        self._stacks[forfeiting_player_id] = 0
+        """Award all chips to remaining players on forfeit."""
+        if self._num_players == 2:
+            # Backward compat: give everything to opponent
+            opponent = self._opponent(forfeiting_player_id)
+            total = sum(self._stacks.values()) + self._pot
+            for pid in self._player_ids:
+                self._stacks[pid] = 0
+            self._stacks[opponent] = total
+        else:
+            # N-player: distribute forfeiter's chips equally among remaining active
+            forfeiter_chips = self._stacks[forfeiting_player_id] + self._pot
+            self._stacks[forfeiting_player_id] = 0
+            remaining = [pid for pid in self._player_ids
+                         if pid != forfeiting_player_id
+                         and pid not in self._busted
+                         and pid not in self._dead_seats]
+            if remaining:
+                share = forfeiter_chips // len(remaining)
+                remainder = forfeiter_chips - share * len(remaining)
+                for i, pid in enumerate(remaining):
+                    self._stacks[pid] += share + (1 if i == 0 else 0) * remainder
         self._pot = 0
         self._terminal = True
+
+    def eliminate_player(self, player_id: str) -> None:
+        """Mark player as dead seat (forfeit-eliminated).
+
+        Dead seats continue to post forced blinds until broke, then
+        transition to busted. They never get dealt cards or act.
+        Also immediately folds them in the current hand.
+        """
+        self._dead_seats.add(player_id)
+        # Immediately fold in current hand so they don't act again
+        self._folded.add(player_id)
 
     def get_highlight_hands(self) -> list[int]:
         """Return list of hand numbers flagged as highlights."""
@@ -333,19 +481,34 @@ class HoldemEvent(Event):
         """Set up a new hand: shuffle deck, post blinds, deal hole cards."""
         self._hand_number += 1
 
+        # Clear previous hand's invested so snapshot stacks are accurate even at terminal
+        self._invested = {pid: 0 for pid in self._player_ids}
+
         # Check if match should be over
         if self._hand_number > self._hands_per_match:
             self._terminal = True
             return
 
-        # Check for bust-out
-        if self._stacks["player_a"] <= 0 or self._stacks["player_b"] <= 0:
+        # Mark busted players
+        for pid in self._player_ids:
+            if self._stacks[pid] <= 0 and pid not in self._busted:
+                self._busted.add(pid)
+
+        # Transition broke dead seats to busted
+        for pid in list(self._dead_seats):
+            if self._stacks[pid] <= 0:
+                self._busted.add(pid)
+                self._dead_seats.discard(pid)
+
+        # Check for terminal: 1 or fewer active players
+        active = self._active_players()
+        if len(active) <= 1:
             self._terminal = True
             return
 
-        # Alternate dealer each hand (after hand 1)
+        # Rotate dealer (after hand 1), skipping busted and dead players
         if self._hand_number > 1:
-            self._dealer = self._opponent(self._dealer)
+            self._dealer = self._next_active_seat(self._dealer, in_hand=False)
 
         # Shuffle deck
         self._deck = list(FULL_DECK)
@@ -362,13 +525,22 @@ class HoldemEvent(Event):
         self._hand_over = False
         self._actions_this_street = []
         self._acted_this_street = set()
-        self._bets = {"player_a": 0, "player_b": 0}
-        self._invested = {"player_a": 0, "player_b": 0}
+        self._folded = set()
+        self._all_in = set()
+        self._bets = {pid: 0 for pid in self._player_ids}
+        self._invested = {pid: 0 for pid in self._player_ids}
         self._last_raise_size = self._blinds[1]  # big blind is the initial "raise"
 
-        # Determine SB and BB
-        sb_player = self._dealer  # In heads-up, dealer is SB
-        bb_player = self._opponent(sb_player)
+        # Determine SB and BB — use _next_seat_for_blinds so dead seats post blinds
+        if len(active) == 2 and not self._dead_seats:
+            # Heads-up (no dead seats): dealer is SB
+            sb_player = self._dealer
+            bb_player = self._next_active_seat(sb_player, in_hand=False)
+        else:
+            # Multi-way (or heads-up with dead seats still bleeding):
+            # SB is left of dealer, BB is left of SB — dead seats participate
+            sb_player = self._next_seat_for_blinds(self._dealer)
+            bb_player = self._next_seat_for_blinds(sb_player)
 
         # Post blinds (capped by stack)
         sb_amount = min(self._blinds[0], self._stacks[sb_player])
@@ -382,16 +554,28 @@ class HoldemEvent(Event):
         self._invested[bb_player] = bb_amount
         self._pot = sb_amount + bb_amount
 
-        # Deal hole cards (2 each)
+        # Track all-in from blinds
+        if self._stacks[sb_player] == 0:
+            self._all_in.add(sb_player)
+        if self._stacks[bb_player] == 0:
+            self._all_in.add(bb_player)
+
+        # Auto-fold dead seats (they never act)
+        for pid in self._dead_seats:
+            if pid not in self._busted:
+                self._folded.add(pid)
+
+        # Deal hole cards to active players only (skip dead seats)
         self._hole_cards = {}
-        self._hole_cards[sb_player] = [self._deal_card(), self._deal_card()]
-        self._hole_cards[bb_player] = [self._deal_card(), self._deal_card()]
+        for pid in active:
+            self._hole_cards[pid] = [self._deal_card(), self._deal_card()]
 
-        # In heads-up, SB acts first preflop
-        self._active_player = sb_player
+        # Set first player to act
+        self._active_player = self._first_to_act(Street.PREFLOP)
 
-        # If either player is all-in from blinds, run out the board
-        if self._stacks[sb_player] == 0 or self._stacks[bb_player] == 0:
+        # If all can-act players <= 1, run out the board
+        can_act = self._can_act_players()
+        if len(can_act) <= 1:
             self._run_out_board()
 
     def _deal_card(self) -> str:
@@ -400,24 +584,59 @@ class HoldemEvent(Event):
         self._deck_idx += 1
         return card
 
-    def _finish_hand(self, winner: str | None, pot: int) -> None:
-        """Award pot to winner and start next hand.
+    def _finish_hand_with_pots(self, fold_winner: str | None = None) -> None:
+        """Resolve pot distribution and clean up.
 
-        If winner is None, it's a split pot.
+        If fold_winner is set, all remaining pot goes to that player.
+        Otherwise, use side pot distribution via showdown scores.
         """
-        if winner is None:
-            # Split pot
-            half = pot // 2
-            remainder = pot - 2 * half
-            self._stacks["player_a"] += half
-            self._stacks["player_b"] += half
-            # Give remainder to the player who was BB (positional disadvantage)
-            bb_player = self._opponent(self._dealer)
-            self._stacks[bb_player] += remainder
+        if fold_winner is not None:
+            # Everyone folded to one player — they win the entire pot
+            self._stacks[fold_winner] += self._pot
+            pot = self._pot
+            self._finish_hand_cleanup(pot, fold_winner)
         else:
-            self._stacks[winner] += pot
+            # Showdown with side pots
+            community_cards = [_card_str_to_card(c) for c in self._community]
+            in_hand = self._players_in_hand()
 
-        # Detect highlights
+            hand_scores: dict[str, int] = {}
+            for pid in in_hand:
+                hole = [_card_str_to_card(c) for c in self._hole_cards[pid]]
+                all_cards = hole + community_cards
+                best = best_five(all_cards)
+                score = evaluate_hand(best)
+                hand_scores[pid] = score
+
+            # Build and distribute side pots
+            side_pots = build_side_pots(self._invested, self._folded)
+            winnings = distribute_pots(side_pots, hand_scores)
+
+            # Award winnings
+            total_pot = self._pot
+            for pid, amount in winnings.items():
+                self._stacks[pid] += amount
+
+            # Any unaccounted chips (rounding) — verify conservation
+            distributed = sum(winnings.values())
+            if distributed < total_pot:
+                # Give remainder to first winner (positional)
+                if winnings:
+                    first_winner = next(iter(winnings))
+                    self._stacks[first_winner] += total_pot - distributed
+
+            # Determine "winner" for highlight detection (biggest winner)
+            winner = max(winnings, key=winnings.get) if winnings else None
+
+            # Detect all-in highlight
+            if any(pid in self._all_in for pid in in_hand):
+                if self._hand_number not in self._highlight_hands:
+                    self._highlight_hands.append(self._hand_number)
+
+            self._finish_hand_cleanup(total_pot, winner)
+
+    def _finish_hand_cleanup(self, pot: int, winner: str | None) -> None:
+        """Common cleanup after pot distribution."""
         self._pot_totals.append(pot)
         self._detect_highlights(winner, pot)
 
@@ -428,17 +647,14 @@ class HoldemEvent(Event):
         self._start_new_hand()
 
     def _run_out_board(self) -> None:
-        """Deal remaining community cards when a player is all-in, then showdown."""
-        # Deal remaining community cards
+        """Deal remaining community cards when players are all-in, then showdown."""
         while len(self._community) < 5:
             if len(self._community) == 0:
-                # Burn and deal flop (3 cards)
                 self._deal_card()  # burn
                 self._community.append(self._deal_card())
                 self._community.append(self._deal_card())
                 self._community.append(self._deal_card())
             else:
-                # Burn and deal one card (turn or river)
                 self._deal_card()  # burn
                 self._community.append(self._deal_card())
 
@@ -450,28 +666,24 @@ class HoldemEvent(Event):
     # ------------------------------------------------------------------
 
     def _do_fold(self, player_id: str) -> None:
-        """Player folds: opponent wins the pot."""
+        """Player folds."""
         self._actions_this_street.append((player_id, "fold", None))
-        opponent = self._opponent(player_id)
+        self._folded.add(player_id)
 
-        # Detect bluff success: fold after opponent raised on the river
-        is_river_bluff = (
-            self._street == Street.RIVER
-            and any(
-                p == opponent and a == "raise"
-                for p, a, _ in self._actions_this_street
-            )
-        )
-        if is_river_bluff:
-            self._highlight_hands.append(self._hand_number)
+        # Detect bluff success: fold after someone raised on the river
+        if self._street == Street.RIVER:
+            raisers = {p for p, a, _ in self._actions_this_street if a == "raise"}
+            if raisers - {player_id}:
+                self._highlight_hands.append(self._hand_number)
 
-        self._finish_hand(opponent, self._pot)
+        # If only 1 player remains, they win
+        remaining = self._players_in_hand()
+        if len(remaining) == 1:
+            self._finish_hand_with_pots(fold_winner=remaining[0])
 
     def _do_call(self, player_id: str) -> None:
         """Player calls (or checks if no bet to match)."""
         call_amt = self._call_amount(player_id)
-
-        # Cap by stack
         call_amt = min(call_amt, self._stacks[player_id])
 
         self._stacks[player_id] -= call_amt
@@ -482,22 +694,20 @@ class HoldemEvent(Event):
         self._actions_this_street.append((player_id, "call", call_amt))
         self._acted_this_street.add(player_id)
 
-    def _do_raise(self, player_id: str, raise_to: int) -> None:
-        """Player raises to the specified total bet for this street.
+        # Track all-in
+        if self._stacks[player_id] == 0:
+            self._all_in.add(player_id)
 
-        raise_to is the total amount the player's bet is raised to for the street.
-        """
+    def _do_raise(self, player_id: str, raise_to: int) -> None:
+        """Player raises to the specified total bet for this street."""
         current_bet = self._bets[player_id]
         additional = raise_to - current_bet
-
-        # Cap by stack
         additional = min(additional, self._stacks[player_id])
         actual_raise_to = current_bet + additional
 
-        # Calculate raise increment (how much above the current bet to match)
-        opponent = self._opponent(player_id)
-        opponent_bet = self._bets[opponent]
-        raise_increment = actual_raise_to - opponent_bet
+        # Calculate raise increment against max bet from all players
+        max_bet = max(self._bets[pid] for pid in self._players_in_hand())
+        raise_increment = actual_raise_to - max_bet
 
         if raise_increment > 0:
             self._last_raise_size = raise_increment
@@ -510,9 +720,12 @@ class HoldemEvent(Event):
         self._actions_this_street.append((player_id, "raise", actual_raise_to))
         self._acted_this_street.add(player_id)
 
-        # After a raise, the opponent needs to act again
-        # Reset acted set so opponent must respond
-        self._acted_this_street = {player_id}
+        # Track all-in
+        if self._stacks[player_id] == 0:
+            self._all_in.add(player_id)
+
+        # After a raise, everyone else must re-act (except all-in players)
+        self._acted_this_street = {player_id} | self._all_in
 
     # ------------------------------------------------------------------
     # Street transitions
@@ -520,27 +733,43 @@ class HoldemEvent(Event):
 
     def _check_street_complete(self) -> None:
         """Check if the current betting round is complete and advance."""
-        # Both players must have acted at least once
-        if len(self._acted_this_street) < 2:
-            # Switch to other player
-            self._active_player = self._opponent(self._active_player)
+        can_act = self._can_act_players()
+
+        # All players who can act must have acted
+        if not all(pid in self._acted_this_street for pid in can_act):
+            # Advance to next player who needs to act
+            current = self._active_player
+            for _ in range(len(self._player_ids)):
+                candidate = self._next_active_seat(current, in_hand=True)
+                if candidate in can_act and candidate not in self._acted_this_street:
+                    self._active_player = candidate
+                    return
+                current = candidate
+            # Fallback: shouldn't get here, but advance anyway
+            self._active_player = self._next_active_seat(self._active_player, in_hand=True)
             return
 
-        # Bets must be equal (or a player is all-in)
-        bets_equal = self._bets["player_a"] == self._bets["player_b"]
-        a_allin = self._stacks["player_a"] == 0
-        b_allin = self._stacks["player_b"] == 0
+        # All can-act players have acted. Check if bets are equal.
+        in_hand_bets = [self._bets[pid] for pid in can_act]
+        bets_equal = len(set(in_hand_bets)) <= 1
 
-        if bets_equal or a_allin or b_allin:
+        has_all_in = len(self._all_in & set(self._players_in_hand())) > 0
+
+        if bets_equal or len(can_act) == 0:
             # Street is complete
-            if a_allin or b_allin:
-                # Someone is all-in: run out the board
+            if has_all_in or len(can_act) <= 1:
                 self._run_out_board()
             else:
                 self._advance_street()
         else:
-            # Continue betting
-            self._active_player = self._opponent(self._active_player)
+            # Bets not equal — find next player who needs to match
+            current = self._active_player
+            for _ in range(len(self._player_ids)):
+                candidate = self._next_active_seat(current, in_hand=True)
+                if candidate in can_act:
+                    self._active_player = candidate
+                    return
+                current = candidate
 
     def _advance_street(self) -> None:
         """Move to the next street."""
@@ -548,72 +777,35 @@ class HoldemEvent(Event):
         next_street = _STREET_ORDER[current_idx + 1]
 
         # Reset street-level betting state
-        self._bets = {"player_a": 0, "player_b": 0}
+        self._bets = {pid: 0 for pid in self._player_ids}
         self._actions_this_street = []
         self._acted_this_street = set()
-        self._last_raise_size = self._blinds[1]  # reset min raise to BB
+        self._last_raise_size = self._blinds[1]
 
         self._street = next_street
 
         if next_street == Street.FLOP:
-            # Burn and deal 3
             self._deal_card()  # burn
             self._community.append(self._deal_card())
             self._community.append(self._deal_card())
             self._community.append(self._deal_card())
         elif next_street in (Street.TURN, Street.RIVER):
-            # Burn and deal 1
             self._deal_card()  # burn
             self._community.append(self._deal_card())
         elif next_street == Street.SHOWDOWN:
             self._resolve_showdown()
             return
 
-        # Post-flop: BB acts first (BB is the non-dealer in heads-up)
-        bb_player = self._opponent(self._dealer)
-        self._active_player = bb_player
+        # Set first to act for this street
+        self._active_player = self._first_to_act(next_street)
+
+        # If only 0-1 players can still act, run out the board
+        if len(self._can_act_players()) <= 1:
+            self._run_out_board()
 
     def _resolve_showdown(self) -> None:
-        """Evaluate both hands and award the pot."""
-        community_cards = [_card_str_to_card(c) for c in self._community]
-
-        hands = {}
-        scores = {}
-        for pid in ("player_a", "player_b"):
-            hole = [_card_str_to_card(c) for c in self._hole_cards[pid]]
-            all_cards = hole + community_cards
-            best = best_five(all_cards)
-            score = evaluate_hand(best)
-            hands[pid] = best
-            scores[pid] = score
-
-        if scores["player_a"] > scores["player_b"]:
-            winner = "player_a"
-        elif scores["player_b"] > scores["player_a"]:
-            winner = "player_b"
-        else:
-            winner = None  # split pot
-
-        # Refund unmatched excess in all-in situations.
-        # The effective pot is 2 * min(invested) -- each player can only
-        # contest what the shorter stack put in.  Any surplus goes back.
-        inv_a = self._invested["player_a"]
-        inv_b = self._invested["player_b"]
-        if inv_a != inv_b:
-            excess = abs(inv_a - inv_b)
-            over_bettor = "player_a" if inv_a > inv_b else "player_b"
-            self._stacks[over_bettor] += excess
-            self._pot -= excess
-            self._invested[over_bettor] -= excess
-
-        pot = self._pot
-
-        # Detect all-in highlight
-        if self._stacks["player_a"] == 0 or self._stacks["player_b"] == 0:
-            if self._hand_number not in self._highlight_hands:
-                self._highlight_hands.append(self._hand_number)
-
-        self._finish_hand(winner, pot)
+        """Evaluate hands and distribute pots."""
+        self._finish_hand_with_pots()
 
     # ------------------------------------------------------------------
     # Pot-limit math
@@ -621,51 +813,49 @@ class HoldemEvent(Event):
 
     def _call_amount(self, player_id: str) -> int:
         """How many chips the player needs to put in to call."""
-        opponent = self._opponent(player_id)
-        diff = self._bets[opponent] - self._bets[player_id]
+        in_hand = self._players_in_hand()
+        if not in_hand:
+            return 0
+        max_bet = max(self._bets[pid] for pid in in_hand)
+        diff = max_bet - self._bets[player_id]
         return max(0, min(diff, self._stacks[player_id]))
 
     def _raise_bounds(self, player_id: str) -> tuple[int | None, int | None]:
         """Calculate min and max raise-to amounts.
 
         Returns (min_raise_to, max_raise_to) or (None, None) if raising is not possible.
-
-        The raise-to amount is the total bet for this street after the raise.
         """
-        opponent = self._opponent(player_id)
-        opponent_bet = self._bets[opponent]
+        in_hand = self._players_in_hand()
+        if not in_hand:
+            return None, None
+
+        max_bet = max(self._bets[pid] for pid in in_hand)
         my_bet = self._bets[player_id]
         my_stack = self._stacks[player_id]
 
-        call_amount = max(0, opponent_bet - my_bet)
+        call_amount = max(0, max_bet - my_bet)
 
         # Can't raise if we can't cover more than a call
         if my_stack <= call_amount:
             return None, None
 
-        # Min raise-to: opponent's bet + last raise size (or BB)
+        # Min raise-to: current max bet + last raise size (or BB)
         min_raise_increment = max(self._last_raise_size, self._blinds[1])
-        min_raise_to = opponent_bet + min_raise_increment
+        min_raise_to = max_bet + min_raise_increment
 
         # Max raise (pot-limit):
-        # pot_after_call = current pot + call_amount
-        # max_raise_increment = pot_after_call
-        # max_raise_to = opponent_bet + max_raise_increment
-        #   (equivalently: call to match, then raise by the size of the pot)
         pot_after_call = self._pot + call_amount
-        max_raise_to = opponent_bet + pot_after_call
+        max_raise_to = max_bet + pot_after_call
 
-        # Cap by player's stack (total they can put in this street)
+        # Cap by player's stack
         max_total_bet = my_bet + my_stack
         min_raise_to = min(min_raise_to, max_total_bet)
         max_raise_to = min(max_raise_to, max_total_bet)
 
-        # If min raise is more than we can afford, it's an all-in shove
         if min_raise_to > max_raise_to:
             min_raise_to = max_raise_to
 
-        # Must be able to at least beat a call
-        if min_raise_to <= opponent_bet:
+        if min_raise_to <= max_bet:
             return None, None
 
         return min_raise_to, max_raise_to
@@ -689,20 +879,104 @@ class HoldemEvent(Event):
                 self._highlight_hands.append(hand_num)
                 return
 
-        # Comeback: trailing player wins pot > 20% of total chips
-        total_chips = self._starting_stack * 2
-        if winner is not None:
-            # Check if winner was trailing before winning.
-            # At this point _finish_hand has already awarded the pot to the winner.
-            # winner's pre-hand stack = current stack - pot + what they invested
-            # opponent's pre-hand stack = current stack + what they invested
-            # Since invested amounts are equal (excess already refunded), the
-            # invested terms cancel in the comparison, giving us:
+        # Comeback: trailing player wins pot > 20% of total chips (2p only)
+        total_chips = self._starting_stack * self._num_players
+        if winner is not None and self._num_players == 2:
             winner_stack_before = self._stacks[winner] - pot
-            opponent_stack_before = self._stacks[self._opponent(winner)]
+            opponent = self._opponent(winner)
+            opponent_stack_before = self._stacks[opponent]
             if winner_stack_before < opponent_stack_before and pot > 0.2 * total_chips:
                 self._highlight_hands.append(hand_num)
                 return
+
+    # ------------------------------------------------------------------
+    # Seat rotation helpers
+    # ------------------------------------------------------------------
+
+    def _active_players(self) -> list[str]:
+        """Return players not busted and not dead-seated, in seat order."""
+        return [pid for pid in self._player_ids
+                if pid not in self._busted and pid not in self._dead_seats]
+
+    def _players_in_hand(self) -> list[str]:
+        """Return players still in the current hand (not folded, not busted)."""
+        return [pid for pid in self._player_ids
+                if pid not in self._folded and pid not in self._busted]
+
+    def _can_act_players(self) -> list[str]:
+        """Return players who can still make decisions (not folded, not busted, not all-in)."""
+        return [pid for pid in self._player_ids
+                if pid not in self._folded and pid not in self._busted and pid not in self._all_in]
+
+    def _next_active_seat(self, from_pid: str, in_hand: bool = True) -> str:
+        """Return the next player clockwise from from_pid.
+
+        If in_hand=True, skip folded and busted players.
+        If in_hand=False, skip only busted players (for dealer rotation).
+        """
+        pool = self._players_in_hand() if in_hand else self._active_players()
+        if not pool:
+            return from_pid
+
+        try:
+            idx = self._player_ids.index(from_pid)
+        except ValueError:
+            return pool[0]
+
+        # Walk clockwise through all seats
+        n = len(self._player_ids)
+        for offset in range(1, n + 1):
+            candidate = self._player_ids[(idx + offset) % n]
+            if candidate in pool:
+                return candidate
+
+        return from_pid
+
+    def _next_seat_for_blinds(self, from_pid: str) -> str:
+        """Return the next non-busted player clockwise (includes dead seats).
+
+        Used only for SB/BB assignment so dead seats still post blinds.
+        """
+        pool = [p for p in self._player_ids if p not in self._busted]
+        if not pool:
+            return from_pid
+
+        try:
+            idx = self._player_ids.index(from_pid)
+        except ValueError:
+            return pool[0]
+
+        n = len(self._player_ids)
+        for offset in range(1, n + 1):
+            candidate = self._player_ids[(idx + offset) % n]
+            if candidate in pool:
+                return candidate
+
+        return from_pid
+
+    def _first_to_act(self, street: Street) -> str:
+        """Return the first player to act on a given street.
+
+        Preflop 2-player: SB/dealer acts first.
+        Preflop 3+: UTG (first player left of BB).
+        Postflop: first active player left of dealer.
+        """
+        active = self._can_act_players()
+        if not active:
+            return self._players_in_hand()[0] if self._players_in_hand() else self._active_players()[0]
+
+        if street == Street.PREFLOP:
+            if len(self._active_players()) == 2:
+                # Heads-up: SB/dealer acts first preflop
+                return self._dealer
+            else:
+                # Multi-way: UTG = left of BB
+                bb = self._next_active_seat(self._dealer, in_hand=False)  # SB
+                bb = self._next_active_seat(bb, in_hand=False)  # BB
+                return self._next_active_seat(bb, in_hand=True)
+        else:
+            # Postflop: first active player left of dealer
+            return self._next_active_seat(self._dealer, in_hand=True)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -710,7 +984,7 @@ class HoldemEvent(Event):
 
     @staticmethod
     def _opponent(player_id: str) -> str:
-        """Return the opponent's player ID."""
+        """Return the opponent's player ID (backward compat for 2-player)."""
         return "player_b" if player_id == "player_a" else "player_a"
 
     def _format_actions(self) -> str:
@@ -719,7 +993,7 @@ class HoldemEvent(Event):
             return "none"
         parts = []
         for pid, act, amt in self._actions_this_street:
-            label = "A" if pid == "player_a" else "B"
+            label = self._player_labels.get(pid, pid)
             if amt is not None and act == "raise":
                 parts.append(f"Player {label} {act} to {amt}")
             elif amt is not None and act == "call" and amt > 0:

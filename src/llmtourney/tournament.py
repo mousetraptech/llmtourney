@@ -240,6 +240,7 @@ class TournamentEngine:
                 starting_stack=event_cfg.starting_stack,
                 blinds=event_cfg.blinds,
                 blind_schedule=event_cfg.blind_schedule,
+                num_players=num_players,
             )
         if event_name == "scrabble":
             return ScrabbleEvent()
@@ -305,7 +306,10 @@ class TournamentEngine:
                 f"Event {event_name!r} requires {len(player_ids)} players, got {len(models)}"
             )
 
-        referee = Referee(escalation=self.config.forfeit_escalation)
+        referee = Referee(
+            escalation=self.config.forfeit_escalation,
+            num_players=len(models),
+        )
         tournament_context = {
             "tournament_name": self.config.name,
             "tier": "unknown",
@@ -322,6 +326,7 @@ class TournamentEngine:
 
         turn_number = 0
         match_forfeit_ruling: str | None = None  # "completed" or "match_forfeit"
+        _last_escalation_ruling: str | None = None  # set by _handle_forfeit_turn
 
         # Stuck-loop detection: 3 consecutive violations of the same kind
         # triggers match forfeit. Independent safety net alongside escalation.
@@ -342,27 +347,50 @@ class TournamentEngine:
                 _violation_streak[pid] = 1
                 _last_violation_key[pid] = vkey
             if _violation_streak[pid] >= STUCK_LOOP_LIMIT:
-                event.award_forfeit_wins(pid)
-                match_forfeit_ruling = "match_forfeit"
-                print(
-                    f"[FORFEIT] {player_models[pid]} forfeits match "
-                    f"(stuck-loop: {STUCK_LOOP_LIMIT} consecutive {vtype} violations)"
-                )
+                if len(models) > 2 and hasattr(event, 'eliminate_player'):
+                    event.eliminate_player(pid)
+                    print(
+                        f"[ELIMINATED] {player_models[pid]} eliminated "
+                        f"(stuck-loop: {STUCK_LOOP_LIMIT} consecutive {vtype} violations)"
+                    )
+                else:
+                    event.award_forfeit_wins(pid)
+                    match_forfeit_ruling = "match_forfeit"
+                    print(
+                        f"[FORFEIT] {player_models[pid]} forfeits match "
+                        f"(stuck-loop: {STUCK_LOOP_LIMIT} consecutive {vtype} violations)"
+                    )
 
         def _handle_forfeit_turn(
             pid: str, vkind: ViolationKind
         ) -> bool:
-            """Record turn forfeit via escalation. Returns True if match forfeited."""
-            nonlocal match_forfeit_ruling
+            """Record turn forfeit via escalation.
+
+            Returns True if match forfeited (2p) or False if match continues.
+            For ELIMINATE_PLAYER (3+p), marks the player as a dead seat.
+            Sets _last_escalation_ruling for telemetry.
+            """
+            nonlocal match_forfeit_ruling, _last_escalation_ruling
+            _last_escalation_ruling = None
             escalation_ruling = referee.record_turn_forfeit(pid, vkind)
             if escalation_ruling == Ruling.FORFEIT_MATCH:
                 event.award_forfeit_wins(pid)
                 match_forfeit_ruling = "match_forfeit"
+                _last_escalation_ruling = Ruling.FORFEIT_MATCH.value
                 print(
                     f"[FORFEIT] {player_models[pid]} forfeits match "
                     f"({referee.get_strikes(pid)} strikes)"
                 )
                 return True
+            if escalation_ruling == Ruling.ELIMINATE_PLAYER:
+                if hasattr(event, 'eliminate_player'):
+                    event.eliminate_player(pid)
+                _last_escalation_ruling = Ruling.ELIMINATE_PLAYER.value
+                print(
+                    f"[ELIMINATED] {player_models[pid]} eliminated "
+                    f"({referee.get_strikes(pid)} strikes)"
+                )
+                return False  # match continues
             return False
 
         def _telemetry_extras(pid: str, time_limit: int | None, time_exceeded: bool):
@@ -435,7 +463,7 @@ class TournamentEngine:
                     parsed=parser.parse("", event.action_schema),
                     validation_result="forfeit",
                     violation=ViolationKind.TIMEOUT.value,
-                    ruling=Ruling.FORFEIT_TURN.value,
+                    ruling=_last_escalation_ruling or Ruling.FORFEIT_TURN.value,
                     **_telemetry_extras(player_id, time_limit_ms, False),
                 )
                 _check_stuck_loop(player_id, "timeout")
@@ -483,7 +511,7 @@ class TournamentEngine:
                     parsed=parser.parse("", event.action_schema),
                     validation_result="forfeit",
                     violation=ViolationKind.TIMEOUT.value,
-                    ruling=Ruling.FORFEIT_TURN.value,
+                    ruling=_last_escalation_ruling or Ruling.FORFEIT_TURN.value,
                     **_telemetry_extras(player_id, time_limit_ms, True),
                 )
                 _check_stuck_loop(player_id, "timeout")
@@ -527,7 +555,7 @@ class TournamentEngine:
                     parsed=parser.parse("", event.action_schema),
                     validation_result="forfeit",
                     violation=ViolationKind.EMPTY_RESPONSE.value,
-                    ruling=Ruling.FORFEIT_TURN.value,
+                    ruling=_last_escalation_ruling or Ruling.FORFEIT_TURN.value,
                     **_telemetry_extras(player_id, time_limit_ms, False),
                 )
                 _check_stuck_loop(player_id, "empty_response")
@@ -603,7 +631,7 @@ class TournamentEngine:
                         parsed=parsed,
                         validation_result="forfeit",
                         violation=violation,
-                        ruling=ruling,
+                        ruling=_last_escalation_ruling or ruling,
                         **_telemetry_extras(player_id, time_limit_ms, False),
                     )
                     _check_stuck_loop(player_id, "malformed_json")
@@ -678,7 +706,7 @@ class TournamentEngine:
                         parsed=parsed,
                         validation_result="forfeit",
                         violation=violation,
-                        ruling=ruling,
+                        ruling=_last_escalation_ruling or ruling,
                         **_telemetry_extras(player_id, time_limit_ms, False),
                     )
                     _check_stuck_loop(
@@ -752,6 +780,17 @@ class TournamentEngine:
                 "forfeiting_model": player_models[forfeit_player],
                 "turn_forfeits": referee.get_strikes(forfeit_player),
             }
+
+        eliminated = referee.get_eliminated_players()
+        if eliminated:
+            match_extra["eliminated_players"] = [
+                {
+                    "player_id": pid,
+                    "model": player_models[pid],
+                    "strikes": referee.get_strikes(pid),
+                }
+                for pid in eliminated
+            ]
 
         logger.finalize_match(
             scores=scores,

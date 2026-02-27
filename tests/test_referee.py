@@ -1,5 +1,6 @@
 """Tests for Referee — violation tracking and penalty rulings."""
 
+from llmtourney.config import ForfeitEscalationConfig
 from llmtourney.core.referee import Referee, ViolationKind, Ruling
 
 
@@ -80,3 +81,66 @@ class TestReferee:
         ref.record_violation("player_a", ViolationKind.INJECTION_ATTEMPT, severity=3, details="y")
         report = ref.get_fidelity_report()
         assert report["player_a"]["total_severity"] == 5
+
+
+class TestEliminatePlayer:
+    """Tests for ELIMINATE_PLAYER ruling and scaled forfeit threshold."""
+
+    def _esc(self, threshold=3, scaling=True):
+        return ForfeitEscalationConfig(
+            turn_forfeit_threshold=1,
+            match_forfeit_threshold=threshold,
+            strike_violations=["timeout", "empty_response"],
+            match_forfeit_scaling=scaling,
+        )
+
+    def test_eliminate_ruling_3plus_players(self):
+        """4-player match: 3 strikes → ELIMINATE_PLAYER (not FORFEIT_MATCH)."""
+        ref = Referee(escalation=self._esc(), num_players=4)
+        ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        ruling = ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        assert ruling == Ruling.ELIMINATE_PLAYER
+        assert ref.get_match_forfeit_player() is None
+        assert "player_a" in ref.get_eliminated_players()
+
+    def test_forfeit_match_preserved_2_players(self):
+        """2-player match: 3 strikes → FORFEIT_MATCH (unchanged)."""
+        ref = Referee(escalation=self._esc(), num_players=2)
+        ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        ruling = ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        assert ruling == Ruling.FORFEIT_MATCH
+        assert ref.get_match_forfeit_player() == "player_a"
+        assert ref.get_eliminated_players() == []
+
+    def test_scaled_threshold_7p(self):
+        """7 players, base=3 → effective=4."""
+        ref = Referee(escalation=self._esc(threshold=3), num_players=7)
+        assert ref.match_forfeit_threshold == 4
+
+    def test_scaled_threshold_9p(self):
+        """9 players, base=3 → effective=6."""
+        ref = Referee(escalation=self._esc(threshold=3), num_players=9)
+        assert ref.match_forfeit_threshold == 6
+
+    def test_scaling_disabled(self):
+        """With scaling off, 9 players still uses base threshold."""
+        ref = Referee(escalation=self._esc(threshold=3, scaling=False), num_players=9)
+        assert ref.match_forfeit_threshold == 3
+
+    def test_two_eliminations(self):
+        """Two different players eliminated, both in get_eliminated_players()."""
+        ref = Referee(escalation=self._esc(), num_players=4)
+        for _ in range(3):
+            ref.record_turn_forfeit("player_a", ViolationKind.TIMEOUT)
+        for _ in range(3):
+            ref.record_turn_forfeit("player_b", ViolationKind.TIMEOUT)
+        elim = ref.get_eliminated_players()
+        assert elim == ["player_a", "player_b"]
+
+    def test_scaling_no_effect_under_7(self):
+        """4-6 players: scaling enabled but no extra strikes."""
+        for n in (3, 4, 5, 6):
+            ref = Referee(escalation=self._esc(threshold=3), num_players=n)
+            assert ref.match_forfeit_threshold == 3

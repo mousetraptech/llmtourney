@@ -31,6 +31,7 @@ class Ruling(Enum):
     RETRY = "retry"
     FORFEIT_TURN = "forfeit_turn"
     FORFEIT_MATCH = "forfeit_match"
+    ELIMINATE_PLAYER = "eliminate_player"
 
 
 @dataclass
@@ -43,17 +44,24 @@ class _ViolationRecord:
 class Referee:
     """Tracks violations and issues rulings for a single match."""
 
+    # Extra strikes granted at 7+ players so larger tables are more forgiving
+    _SCALING_TABLE = {7: 1, 8: 2, 9: 3}
+
     def __init__(
-        self, escalation: ForfeitEscalationConfig | None = None
+        self,
+        escalation: ForfeitEscalationConfig | None = None,
+        num_players: int = 2,
     ) -> None:
         self._violations: dict[str, list[_ViolationRecord]] = defaultdict(list)
         self._retry_used: dict[str, bool] = defaultdict(lambda: False)
         self._turn_violations: dict[str, int] = defaultdict(int)
         self._escalation = escalation
+        self._num_players = num_players
 
         # Strike tracking for forfeit escalation
         self._turn_forfeit_count: dict[str, int] = defaultdict(int)
         self._match_forfeited_by: str | None = None
+        self._eliminated_players: list[str] = []
 
     def record_violation(
         self, player_id: str, kind: ViolationKind, severity: int, details: str
@@ -76,14 +84,29 @@ class Referee:
             return Ruling.RETRY
         return Ruling.FORFEIT_TURN
 
+    def _effective_threshold(self) -> int:
+        """Return the match forfeit threshold, scaled for large tables."""
+        if self._escalation is None:
+            return 3  # sensible default
+        base = self._escalation.match_forfeit_threshold
+        if not self._escalation.match_forfeit_scaling:
+            return base
+        if self._num_players >= 7:
+            extra = self._SCALING_TABLE.get(
+                self._num_players, max(0, self._num_players - 6)
+            )
+            return base + extra
+        return base
+
     def record_turn_forfeit(
         self, player_id: str, violation_kind: ViolationKind
     ) -> Ruling:
-        """Record a turn forfeit and check for match forfeit.
+        """Record a turn forfeit and check for match/player forfeit.
 
         Increments strike count if the violation kind is in the configured
-        strike_violations list. Returns FORFEIT_MATCH if the match forfeit
-        threshold is reached.
+        strike_violations list. Returns FORFEIT_MATCH for 2-player matches
+        or ELIMINATE_PLAYER for 3+ player matches when the threshold is
+        reached.
         """
         if self._escalation is None:
             return Ruling.FORFEIT_TURN
@@ -91,12 +114,13 @@ class Referee:
         if violation_kind.value in self._escalation.strike_violations:
             self._turn_forfeit_count[player_id] += 1
 
-        if (
-            self._turn_forfeit_count[player_id]
-            >= self._escalation.match_forfeit_threshold
-        ):
-            self._match_forfeited_by = player_id
-            return Ruling.FORFEIT_MATCH
+        if self._turn_forfeit_count[player_id] >= self._effective_threshold():
+            if self._num_players <= 2:
+                self._match_forfeited_by = player_id
+                return Ruling.FORFEIT_MATCH
+            else:
+                self._eliminated_players.append(player_id)
+                return Ruling.ELIMINATE_PLAYER
 
         return Ruling.FORFEIT_TURN
 
@@ -110,10 +134,14 @@ class Referee:
 
     @property
     def match_forfeit_threshold(self) -> int | None:
-        """Return the configured match forfeit threshold, or None."""
+        """Return the effective match forfeit threshold (with scaling), or None."""
         if self._escalation is None:
             return None
-        return self._escalation.match_forfeit_threshold
+        return self._effective_threshold()
+
+    def get_eliminated_players(self) -> list[str]:
+        """Return list of player_ids eliminated (in elimination order)."""
+        return list(self._eliminated_players)
 
     def should_retry(self, player_id: str) -> bool:
         return not self._retry_used[player_id]
