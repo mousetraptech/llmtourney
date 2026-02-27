@@ -59,6 +59,11 @@ class MongoSink:
 
 ## Collections & Schema
 
+**All documents** get an `_ingested_at` field set by MongoSink at write time
+(UTC datetime). Distinct from `timestamp` which records when the turn/match
+actually happened. Useful for distinguishing live writes from backfill runs
+and debugging ingestion issues.
+
 ### `turns`
 
 One document per turn. Mirrors TelemetryEntry fields exactly, plus denormalized context.
@@ -104,7 +109,11 @@ Added fields:
 **Indexes:**
 - `match_id` (unique)
 - `event_type` (single)
-- `(model_id, event_type)` compound — "how does model X do at Reversi"
+- `(models, event_type)` compound multikey — "how does model X do at Reversi"
+  Note: `models` is an array field, so this is a multikey index. MongoDB handles
+  this correctly for queries like `db.matches.find({"models": "claude-sonnet-4.5"})`.
+  The compound with `event_type` (scalar) is fine — restriction is only against
+  two array fields in the same compound index.
 - `tournament_name` (single)
 
 ### `models`
