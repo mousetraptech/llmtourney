@@ -48,11 +48,13 @@ class TelemetryEntry:
 class TelemetryLogger:
     """Writes JSONL telemetry for a single match."""
 
-    def __init__(self, output_dir: Path, match_id: str):
+    def __init__(self, output_dir: Path, match_id: str, mongo_sink=None, tournament_context=None):
         self._output_dir = Path(output_dir)
         self._match_id = match_id
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._file_path = self._output_dir / f"{match_id}.jsonl"
+        self._sink = mongo_sink
+        self._tournament_context = tournament_context or {}
 
     @property
     def file_path(self) -> Path:
@@ -64,6 +66,11 @@ class TelemetryLogger:
         record["match_id"] = self._match_id
         record["timestamp"] = datetime.now(timezone.utc).isoformat()
         self._append(record)
+        if self._sink:
+            try:
+                self._sink.log_turn(self._match_id, entry, self._tournament_context)
+            except Exception:
+                pass  # sink errors never break JSONL
 
     def finalize_match(
         self,
@@ -83,6 +90,15 @@ class TelemetryLogger:
         if extra:
             record.update(extra)
         self._append(record)
+        if self._sink:
+            try:
+                player_models = (extra or {}).get("player_models", {})
+                self._sink.finalize_match(
+                    self._match_id, scores, fidelity, player_models,
+                    self._tournament_context, extra=extra,
+                )
+            except Exception:
+                pass
 
     def _append(self, record: dict) -> None:
         with open(self._file_path, "a") as f:
