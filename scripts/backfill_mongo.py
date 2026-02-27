@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -263,7 +264,7 @@ def run_backfill(
     # Connect to MongoDB
     from pymongo import MongoClient
 
-    uri = uri or _DEFAULT_URI
+    uri = uri or os.environ.get("TOURNEY_MONGO_URI", _DEFAULT_URI)
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
     db = client[_DB_NAME]
@@ -290,8 +291,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--uri",
-        default=_DEFAULT_URI,
-        help=f"MongoDB connection URI (default: {_DEFAULT_URI})",
+        default=None,
+        help="MongoDB connection URI (default: $TOURNEY_MONGO_URI or localhost:27017)",
     )
     parser.add_argument(
         "--dir",
