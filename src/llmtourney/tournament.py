@@ -75,6 +75,7 @@ class TournamentEngine:
         self.seed_mgr = SeedManager(config.seed)
         self.telemetry_dir = self._resolve_telemetry_dir()
         self.adapters: dict[str, ModelAdapter] = self._build_adapters()
+        self._mongo_sink = self._init_mongo_sink()
 
     # ------------------------------------------------------------------
     # Public API
@@ -82,23 +83,27 @@ class TournamentEngine:
 
     def run(self) -> TournamentResult:
         """Execute the full tournament and return results."""
-        matches: list[MatchResult] = []
-        model_names = list(self.config.models.keys())
+        try:
+            matches: list[MatchResult] = []
+            model_names = list(self.config.models.keys())
 
-        for event_name, event_cfg in self.config.events.items():
-            for _round in range(1, event_cfg.rounds + 1):
-                for matchup in combinations(model_names, 2):
-                    result = self._run_match(
-                        event_name, event_cfg, matchup[0], matchup[1]
-                    )
-                    matches.append(result)
+            for event_name, event_cfg in self.config.events.items():
+                for _round in range(1, event_cfg.rounds + 1):
+                    for matchup in combinations(model_names, 2):
+                        result = self._run_match(
+                            event_name, event_cfg, matchup[0], matchup[1]
+                        )
+                        matches.append(result)
 
-        standings = self._compute_standings(matches)
-        return TournamentResult(
-            telemetry_dir=self.telemetry_dir,
-            matches=matches,
-            standings=standings,
-        )
+            standings = self._compute_standings(matches)
+            return TournamentResult(
+                telemetry_dir=self.telemetry_dir,
+                matches=matches,
+                standings=standings,
+            )
+        finally:
+            if self._mongo_sink:
+                self._mongo_sink.close()
 
     # ------------------------------------------------------------------
     # Internal: setup
@@ -112,6 +117,21 @@ class TournamentEngine:
             d = Path("output") / "telemetry"
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    def _init_mongo_sink(self):
+        """Create MongoSink if TOURNEY_MONGO_URI is set, else None."""
+        uri = os.environ.get("TOURNEY_MONGO_URI")
+        if not uri:
+            return None
+        try:
+            from llmtourney.core.mongo_sink import MongoSink
+            return MongoSink(uri, "llmtourney")
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "MongoDB unavailable, continuing JSONL-only: %s", exc,
+            )
+            return None
 
     def _build_adapters(self) -> dict[str, ModelAdapter]:
         """Map model configs to concrete adapter instances."""
@@ -286,7 +306,17 @@ class TournamentEngine:
             )
 
         referee = Referee(escalation=self.config.forfeit_escalation)
-        logger = TelemetryLogger(self.telemetry_dir, match_id)
+        tournament_context = {
+            "tournament_name": self.config.name,
+            "tier": "unknown",
+            "round": 0,
+            "event_type": event_name,
+        }
+        logger = TelemetryLogger(
+            self.telemetry_dir, match_id,
+            mongo_sink=self._mongo_sink,
+            tournament_context=tournament_context,
+        )
         parser = ActionParser()
         player_models = dict(zip(player_ids, models))
 
