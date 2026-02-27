@@ -14,7 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 live = ["openai>=1.0", "anthropic>=0.40"]
 dev = ["pytest>=8.0"]
-all = ["llmtourney[live,dev]"]
+mongo = ["pymongo>=4.6"]
+all = ["llmtourney[live,dev,mongo]"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
