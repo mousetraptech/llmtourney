@@ -305,6 +305,10 @@ class CheckersEvent(Event):
         }
 
     @property
+    def player_ids(self) -> list[str]:
+        return ["player_a", "player_b"]
+
+    @property
     def action_schema(self) -> dict:
         return self._action_schema
 

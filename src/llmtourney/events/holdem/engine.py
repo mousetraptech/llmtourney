@@ -287,6 +287,10 @@ class HoldemEvent(Event):
         }
 
     @property
+    def player_ids(self) -> list[str]:
+        return ["player_a", "player_b"]
+
+    @property
     def action_schema(self) -> dict:
         """Return the JSON Schema for valid actions."""
         return self._action_schema

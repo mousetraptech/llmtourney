@@ -61,6 +61,11 @@ class Event(ABC):
 
     @property
     @abstractmethod
+    def player_ids(self) -> list[str]:
+        """Return ordered list of player IDs for this event."""
+
+    @property
+    @abstractmethod
     def action_schema(self) -> dict:
         """Return the JSON Schema for valid actions in this event."""
 

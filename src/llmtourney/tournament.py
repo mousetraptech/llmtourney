@@ -37,6 +37,7 @@ from llmtourney.events.scrabble.engine import ScrabbleEvent
 from llmtourney.events.tictactoe.engine import TicTacToeEvent
 from llmtourney.events.connectfour.engine import ConnectFourEvent
 from llmtourney.events.reversi.engine import ReversiEvent
+from llmtourney.events.bullshit.engine import BullshitEvent
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -226,6 +227,8 @@ class TournamentEngine:
             return ConnectFourEvent(games_per_match=event_cfg.games_per_match)
         if event_name == "reversi":
             return ReversiEvent(games_per_match=event_cfg.games_per_match)
+        if event_name == "bullshit":
+            return BullshitEvent(games_per_match=event_cfg.games_per_match)
         raise ValueError(f"Unknown event: {event_name!r}")
 
     def _get_time_limit_ms(self, model_name: str) -> int | None:
@@ -248,10 +251,22 @@ class TournamentEngine:
         match_id: str | None = None,
     ) -> MatchResult:
         """Execute a single match between two models."""
+        return self._run_multiplayer_match(
+            event_name, event_cfg, [model_a, model_b], match_id=match_id,
+        )
+
+    def _run_multiplayer_match(
+        self,
+        event_name: str,
+        event_cfg: EventConfig,
+        models: list[str],
+        match_id: str | None = None,
+    ) -> MatchResult:
+        """Execute a match with N players."""
         if match_id is None:
             short_id = uuid.uuid4().hex[:6]
-            match_id = f"{event_name}-{model_a}-vs-{model_b}-{short_id}"
-        deterministic_key = f"{event_name}-{model_a}-vs-{model_b}"
+            match_id = f"{event_name}-{'-vs-'.join(models)}-{short_id}"
+        deterministic_key = f"{event_name}-{'-vs-'.join(models)}"
         seed = self.seed_mgr.get_match_seed(
             event_name, 1, hash(deterministic_key) % 10000
         )
@@ -259,10 +274,16 @@ class TournamentEngine:
         event = self._build_event(event_name, event_cfg)
         event.reset(seed)
 
+        player_ids = event.player_ids
+        if len(models) != len(player_ids):
+            raise ValueError(
+                f"Event {event_name!r} requires {len(player_ids)} players, got {len(models)}"
+            )
+
         referee = Referee(escalation=self.config.forfeit_escalation)
         logger = TelemetryLogger(self.telemetry_dir, match_id)
         parser = ActionParser()
-        player_models = {"player_a": model_a, "player_b": model_b}
+        player_models = dict(zip(player_ids, models))
 
         turn_number = 0
         match_forfeit_ruling: str | None = None  # "completed" or "match_forfeit"
@@ -270,7 +291,7 @@ class TournamentEngine:
         # Stuck-loop detection: 3 consecutive violations of the same kind
         # triggers match forfeit. Independent safety net alongside escalation.
         _last_violation_key: dict[str, tuple] = {}
-        _violation_streak: dict[str, int] = {"player_a": 0, "player_b": 0}
+        _violation_streak: dict[str, int] = {pid: 0 for pid in player_ids}
         STUCK_LOOP_LIMIT = 3
 
         def _check_stuck_loop(pid: str, vtype: str, action: dict | None = None):
@@ -661,8 +682,8 @@ class TournamentEngine:
         scores = event.get_scores()
         fidelity = referee.get_fidelity_report()
 
-        # Ensure fidelity report has entries for both players even if clean
-        for pid in ("player_a", "player_b"):
+        # Ensure fidelity report has entries for all players even if clean
+        for pid in player_ids:
             if pid not in fidelity:
                 fidelity[pid] = {
                     "total_violations": 0,
