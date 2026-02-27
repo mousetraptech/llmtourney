@@ -1,0 +1,39 @@
+tournament:
+  name: "champions-test"
+  seed: 42
+  format: bracket
+  version: "0.1.0"
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  deepseek-v3:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  tictactoe:
+    weight: 1
+    games_per_match: 3
+  connectfour:
+    weight: 1
+    games_per_match: 3
+  reversi:
+    weight: 1
+    games_per_match: 3
+  holdem:
+    weight: 1
+    hands_per_match: 10
+    starting_stack: 200
+    blinds: [1, 2]
+shot_clock:
+  default_ms: 30000
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0

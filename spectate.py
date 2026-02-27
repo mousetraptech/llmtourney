@@ -2548,6 +2548,376 @@ def render_reversi(state: ReversiMatchState) -> Group:
     return Group(*parts)
 
 
+# ── Bullshit Spectator ────────────────────────────────────────────
+
+BULLSHIT_COLORS = {
+    "player_a": "cyan",
+    "player_b": "magenta",
+    "player_c": "green",
+    "player_d": "yellow",
+}
+BULLSHIT_LABELS = {"player_a": "A", "player_b": "B", "player_c": "C", "player_d": "D"}
+BULLSHIT_PLAYER_IDS = ["player_a", "player_b", "player_c", "player_d"]
+
+RANK_NAMES = {
+    "A": "Aces", "2": "Twos", "3": "Threes", "4": "Fours",
+    "5": "Fives", "6": "Sixes", "7": "Sevens", "8": "Eights",
+    "9": "Nines", "10": "Tens", "J": "Jacks", "Q": "Queens", "K": "Kings",
+}
+
+
+@dataclass
+class BullshitMatchState:
+    """Accumulated state for a Bullshit match spectator."""
+
+    match_id: str = ""
+    models: dict = field(default_factory=lambda: {p: "" for p in BULLSHIT_PLAYER_IDS})
+    game_number: int = 1
+    games_per_match: int = 1
+    turn_number: int = 0
+    phase: str = "play"
+    target_rank: str = "A"
+    current_player: str = "player_a"
+    card_counts: dict = field(
+        default_factory=lambda: {p: 13 for p in BULLSHIT_PLAYER_IDS}
+    )
+    hands: dict = field(
+        default_factory=lambda: {p: [] for p in BULLSHIT_PLAYER_IDS}
+    )
+    discard_pile: list = field(default_factory=list)
+    discard_pile_size: int = 0
+    history: list = field(default_factory=list)
+    finish_order: list = field(default_factory=list)
+    eliminated: list = field(default_factory=list)
+    match_scores: dict = field(
+        default_factory=lambda: {p: 0.0 for p in BULLSHIT_PLAYER_IDS}
+    )
+    player_stats: dict = field(
+        default_factory=lambda: {
+            p: {"lie_count": 0, "truth_count": 0, "times_caught": 0,
+                "times_called_bs": 0, "correct_calls": 0}
+            for p in BULLSHIT_PLAYER_IDS
+        }
+    )
+    last_play: dict | None = None
+    last_reasoning: str = ""
+    last_model: str = ""
+    last_player_id: str = ""
+    commentary: deque = field(default_factory=lambda: deque(maxlen=12))
+    finished: bool = False
+    final_scores: dict = field(default_factory=dict)
+    violations: dict = field(
+        default_factory=lambda: {p: 0 for p in BULLSHIT_PLAYER_IDS}
+    )
+    turn_count: int = 0
+
+
+def process_bullshit_turn(state: BullshitMatchState, data: dict) -> None:
+    """Update Bullshit match state from a single telemetry line."""
+    if data.get("record_type") == "match_summary":
+        state.finished = True
+        state.final_scores = data.get("final_scores", {})
+        pm = data.get("player_models", {})
+        if pm:
+            for pid in BULLSHIT_PLAYER_IDS:
+                if pid in pm:
+                    state.models[pid] = pm[pid]
+        return
+
+    state.turn_count += 1
+    snap = data.get("state_snapshot", {})
+    player_id = data.get("player_id", "")
+    model_id = data.get("model_id", "")
+
+    if not state.match_id:
+        state.match_id = data.get("match_id", "")
+    if player_id and model_id:
+        state.models[player_id] = model_id
+
+    # Update all fields from snapshot
+    state.game_number = snap.get("game_number", state.game_number)
+    state.games_per_match = snap.get("games_per_match", state.games_per_match)
+    state.turn_number = snap.get("turn_number", state.turn_number)
+    state.phase = snap.get("phase", state.phase)
+    state.target_rank = snap.get("target_rank", state.target_rank)
+    state.current_player = snap.get("current_player", state.current_player)
+    state.card_counts = snap.get("card_counts", state.card_counts)
+    state.hands = snap.get("hands", state.hands)
+    state.discard_pile = snap.get("discard_pile", state.discard_pile)
+    state.discard_pile_size = snap.get("discard_pile_size", state.discard_pile_size)
+    state.history = snap.get("history", state.history)
+    state.finish_order = snap.get("finish_order", state.finish_order)
+    state.eliminated = snap.get("eliminated", state.eliminated)
+    state.match_scores = snap.get("match_scores", state.match_scores)
+    state.player_stats = snap.get("player_stats", state.player_stats)
+    state.last_play = snap.get("last_play", state.last_play)
+
+    state.last_player_id = player_id
+    state.last_model = model_id
+
+    # Reasoning
+    reasoning = data.get("reasoning_output", "")
+    if reasoning:
+        state.last_reasoning = truncate_reasoning(reasoning, max_len=120) or ""
+
+    # Violations
+    violation = data.get("violation")
+    if violation:
+        state.violations[player_id] = state.violations.get(player_id, 0) + 1
+
+    # Commentary from last action
+    parsed = data.get("parsed_action") or {}
+    act = parsed.get("action", "???")
+    if data.get("validation_result") == "forfeit":
+        act = "forfeit"
+
+    label = BULLSHIT_LABELS.get(player_id, "?")
+    color = BULLSHIT_COLORS.get(player_id, "white")
+    line = f"[{color}]{state.models.get(player_id, label)}[/{color}] "
+    if act == "play":
+        cards = parsed.get("cards", [])
+        line += f"played {len(cards)} card(s) as {RANK_NAMES.get(state.target_rank, state.target_rank)}"
+    elif act == "call":
+        line += "called BULLSHIT!"
+    elif act == "pass":
+        line += "passed"
+    elif act == "forfeit":
+        line += "[red]forfeited[/red]"
+    else:
+        line += f"did {act}"
+
+    latency = data.get("latency_ms", 0)
+    if latency > 100:
+        line += f" [dim]({latency/1000:.1f}s)[/dim]"
+
+    state.commentary.append(line)
+
+
+def render_bullshit(state: BullshitMatchState) -> Group:
+    """Build the full Bullshit display."""
+    parts = []
+
+    # ── Header ──
+    header = Text()
+    if state.finished:
+        header.append("FINAL  ", style="bold red blink")
+    else:
+        header.append("LIVE  ", style="bold green")
+    header.append("BULLSHIT  ", style="bold white")
+
+    names = []
+    for pid in BULLSHIT_PLAYER_IDS:
+        name = state.models.get(pid) or f"Player {BULLSHIT_LABELS[pid]}"
+        names.append((name, BULLSHIT_COLORS[pid]))
+
+    for i, (name, color) in enumerate(names):
+        if i > 0:
+            header.append(" vs ", style="dim")
+        header.append(name, style=f"bold {color}")
+
+    sub = Text()
+    sub.append(f"Game {state.game_number}", style="bold")
+    if state.games_per_match > 1:
+        sub.append(f" of {state.games_per_match}", style="dim")
+    sub.append("  |  ", style="dim")
+    for pid in BULLSHIT_PLAYER_IDS:
+        color = BULLSHIT_COLORS[pid]
+        label = BULLSHIT_LABELS[pid]
+        score = state.match_scores.get(pid, 0)
+        if pid != "player_a":
+            sub.append(" ", style="dim")
+        sub.append(f"{label}:{score:.0f}", style=f"bold {color}")
+    sub.append("  |  ", style="dim")
+    sub.append(f"Target: {RANK_NAMES.get(state.target_rank, state.target_rank)}", style="bold yellow")
+
+    parts.append(Panel(
+        Group(Align.center(header), Align.center(sub)),
+        border_style="bright_white" if not state.finished else "red",
+        padding=(0, 1),
+    ))
+
+    # ── Action Hero Panel ──
+    if state.last_play and state.history:
+        last_h = state.history[-1] if state.history else None
+        lp = state.last_play
+        player = lp.get("player", "")
+        model_name = state.models.get(player, BULLSHIT_LABELS.get(player, "?"))
+        color = BULLSHIT_COLORS.get(player, "white")
+        claim_rank = lp.get("claim_rank", "?")
+        claim_count = lp.get("claim_count", 0)
+        actual_cards = lp.get("cards", [])
+
+        hero = Text()
+        hero.append(f"{model_name}", style=f"bold {color}")
+        hero.append(f" played {claim_count} card(s) claiming ", style="white")
+        hero.append(f"{RANK_NAMES.get(claim_rank, claim_rank)}", style="bold yellow")
+        hero.append("\n")
+        hero.append(f"  Actual: {', '.join(actual_cards)}", style="dim")
+
+        if last_h:
+            was_truthful = last_h.get("was_truthful", True)
+            hero.append("  ")
+            if was_truthful:
+                hero.append("TRUTH", style="bold green")
+            else:
+                hero.append("LIE", style="bold red")
+
+            challenger = last_h.get("challenge_by")
+            if challenger:
+                c_model = state.models.get(challenger, BULLSHIT_LABELS.get(challenger, "?"))
+                c_color = BULLSHIT_COLORS.get(challenger, "white")
+                was_bluff = last_h.get("was_bluff", False)
+                hero.append("\n  ")
+                hero.append(f"{c_model}", style=f"bold {c_color}")
+                hero.append(" called BS! → ", style="white")
+                if was_bluff:
+                    hero.append("CAUGHT! Liar picks up pile", style="bold green")
+                else:
+                    hero.append("WRONG! Caller picks up pile", style="bold red")
+
+        border = "yellow"
+        if last_h and last_h.get("challenge_by"):
+            border = "green" if last_h.get("was_bluff") else "red"
+
+        parts.append(Panel(hero, title="Last Action", border_style=border, padding=(0, 1)))
+
+    # ── Player Panels (4-across) ──
+    player_panels = []
+    for pid in BULLSHIT_PLAYER_IDS:
+        color = BULLSHIT_COLORS[pid]
+        label = BULLSHIT_LABELS[pid]
+        model_name = state.models.get(pid) or f"Player {label}"
+        is_eliminated = pid in state.eliminated
+
+        t = Text()
+        t.append(f"{model_name}\n", style=f"bold {color}")
+
+        if is_eliminated:
+            t.append("OUT\n", style="bold red")
+        else:
+            count = state.card_counts.get(pid, 0)
+            t.append(f"{count} cards\n", style="white")
+
+        # God mode: show hand sorted
+        hand = state.hands.get(pid, [])
+        if hand:
+            sorted_h = sorted(hand, key=lambda c: c[:-1])
+            display = " ".join(sorted_h[:10])
+            if len(sorted_h) > 10:
+                display += f" +{len(sorted_h) - 10}"
+            t.append(f"{display}\n", style="dim")
+        else:
+            t.append("(empty)\n", style="dim")
+
+        # Stats
+        stats = state.player_stats.get(pid, {})
+        lies = stats.get("lie_count", 0)
+        truths = stats.get("truth_count", 0)
+        caught = stats.get("times_caught", 0)
+        calls = stats.get("times_called_bs", 0)
+        correct = stats.get("correct_calls", 0)
+        total_plays = lies + truths
+        if total_plays > 0:
+            lie_pct = lies * 100 // total_plays
+            t.append(f"Bluff: {lie_pct}%", style="dim")
+            if caught > 0:
+                t.append(f" Caught: {caught}", style="red")
+            t.append("\n", style="dim")
+        if calls > 0:
+            acc = correct * 100 // calls
+            t.append(f"BS calls: {calls} ({acc}% right)", style="dim")
+
+        border = color if pid == state.current_player and not state.finished else "dim"
+        player_panels.append(Panel(t, border_style=border, expand=True))
+
+    parts.append(Columns(player_panels, equal=True, expand=True))
+
+    # ── History Panel ──
+    if state.history:
+        hist_text = Text()
+        for entry in state.history[-8:]:
+            turn = entry.get("turn", 0)
+            p = entry.get("player", "")
+            p_color = BULLSHIT_COLORS.get(p, "white")
+            p_label = BULLSHIT_LABELS.get(p, "?")
+            claim = f"{entry.get('claim_count', 0)} {RANK_NAMES.get(entry.get('claim_rank', '?'), '?')}"
+
+            hist_text.append(f"T{turn:>3} ", style="dim")
+            hist_text.append(f"{p_label} ", style=f"bold {p_color}")
+            hist_text.append(f"{claim} ", style="white")
+
+            if entry.get("was_truthful"):
+                hist_text.append("TRUTH", style="green")
+            else:
+                hist_text.append("LIE", style="red")
+
+            ch = entry.get("challenge_by")
+            if ch:
+                ch_label = BULLSHIT_LABELS.get(ch, "?")
+                ch_color = BULLSHIT_COLORS.get(ch, "white")
+                was_bluff = entry.get("was_bluff", False)
+                hist_text.append(f" → ", style="dim")
+                hist_text.append(f"{ch_label}", style=f"bold {ch_color}")
+                if was_bluff:
+                    hist_text.append(" caught!", style="bold green")
+                else:
+                    hist_text.append(" wrong!", style="bold red")
+
+            hist_text.append("\n")
+
+        parts.append(Panel(hist_text, title="History", border_style="dim", padding=(0, 1)))
+
+    # ── Reasoning Panel ──
+    if state.last_reasoning:
+        reason_text = Text()
+        reason_text.append(f"{state.last_model}: ", style="bold")
+        reason_text.append(state.last_reasoning, style="italic dim")
+        parts.append(Panel(reason_text, title="Reasoning", border_style="dim", padding=(0, 1)))
+
+    # ── Commentary Feed ──
+    if state.commentary:
+        feed = Text()
+        for line in list(state.commentary)[-8:]:
+            feed.append_text(Text.from_markup(line + "\n"))
+        parts.append(Panel(feed, title="Play-by-Play", border_style="dim", padding=(0, 1)))
+
+    # ── Footer ──
+    parts.append(build_bullshit_footer(state))
+
+    return Group(*parts)
+
+
+def build_bullshit_footer(state: BullshitMatchState) -> Panel:
+    """Footer with turn count, violations, discard pile."""
+    footer = Text()
+    footer.append(f"Turn {state.turn_count}", style="dim")
+    footer.append("  |  ", style="dim")
+    footer.append(f"Discard pile: {state.discard_pile_size}", style="dim")
+
+    total_v = sum(state.violations.get(p, 0) for p in BULLSHIT_PLAYER_IDS)
+    if total_v > 0:
+        footer.append("  |  ", style="dim")
+        footer.append(f"Violations: {total_v}", style="red")
+
+    if state.finished:
+        footer.append("  |  ", style="dim")
+        footer.append("MATCH COMPLETE", style="bold")
+
+        # Show final standings
+        scores = state.final_scores or state.match_scores
+        ranked = sorted(scores.items(), key=lambda x: -x[1])
+        footer.append("\n")
+        for i, (pid, score) in enumerate(ranked):
+            color = BULLSHIT_COLORS.get(pid, "white")
+            model = state.models.get(pid) or BULLSHIT_LABELS.get(pid, "?")
+            place = ["1st", "2nd", "3rd", "4th"][i]
+            footer.append(f"\n  {place}: ", style="bold")
+            footer.append(f"{model}", style=f"bold {color}")
+            footer.append(f" ({score:.0f} pts)", style="dim")
+
+    return Panel(footer, border_style="dim", padding=(0, 1))
+
+
 # ── File Tailing ────────────────────────────────────────────────────
 
 
@@ -2612,10 +2982,13 @@ def main() -> None:
     is_tictactoe = match_id.startswith("tictactoe")
     is_connectfour = match_id.startswith("connectfour")
     is_reversi = match_id.startswith("reversi")
+    is_bullshit = match_id.startswith("bullshit")
 
     console.print(f"[bold]Spectating:[/bold] {match_id}")
     console.print(f"[dim]File: {jsonl_path}[/dim]")
-    if is_reversi:
+    if is_bullshit:
+        event_label = "Bullshit"
+    elif is_reversi:
         event_label = "Reversi"
     elif is_connectfour:
         event_label = "Connect Four"
@@ -2630,7 +3003,12 @@ def main() -> None:
     if not jsonl_path.exists():
         console.print(f"\n[yellow]Waiting for match to start...[/yellow]")
 
-    if is_reversi:
+    if is_bullshit:
+        state = BullshitMatchState(match_id=match_id)
+        process_fn = process_bullshit_turn
+        render_fn = render_bullshit
+        footer_fn = build_bullshit_footer
+    elif is_reversi:
         state = ReversiMatchState(match_id=match_id)
         process_fn = process_reversi_turn
         render_fn = render_reversi

@@ -45,11 +45,11 @@ def _run_round_robin(config) -> None:
     print(f"Telemetry: {result.telemetry_dir}")
 
 
-def _run_bracket(config) -> None:
+def _run_bracket(config, pause_before_final: bool = False) -> None:
     """Run a single-elimination bracket tournament."""
     from llmtourney.bracket import BracketRunner
 
-    runner = BracketRunner(config)
+    runner = BracketRunner(config, pause_before_final=pause_before_final)
     manifest = runner.run()
 
     runner.print_bracket()
@@ -75,6 +75,12 @@ def main() -> None:
         default=None,
         help="Output directory (default: output/runs/)",
     )
+    parser.add_argument(
+        "--pause-before-final",
+        action="store_true",
+        default=False,
+        help="Pause for confirmation before starting the final match",
+    )
     args = parser.parse_args()
 
     if not args.config.exists():
@@ -91,7 +97,7 @@ def main() -> None:
     print()
 
     if config.format == "bracket":
-        _run_bracket(config)
+        _run_bracket(config, pause_before_final=args.pause_before_final)
     else:
         _run_round_robin(config)
 

@@ -1,0 +1,49 @@
+tournament:
+  name: "holdem-6player-match"
+  seed: 42
+  format: round_robin
+  version: "0.1.0"
+models:
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  claude-sonnet-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  gemini-2.5-flash:
+    provider: openrouter
+    model_id: google/gemini-2.5-flash
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  deepseek-v3.2:
+    provider: openrouter
+    model_id: deepseek/deepseek-v3.2
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 10
+    starting_stack: 200
+shot_clock:
+  default_ms: 30000
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 30.0

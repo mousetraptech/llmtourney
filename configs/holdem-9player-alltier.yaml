@@ -1,0 +1,114 @@
+tournament:
+  name: "holdem-9player-alltier"
+  seed: 99
+  format: bracket
+  version: "0.1.0"
+
+# --- Heavyweight (3 seats) ---
+# Flagships with full compute budgets.
+# 2048 tokens, 120s shot clock.
+
+# --- Midtier (3 seats) ---
+# Strong all-rounders on tighter budgets.
+# 512 tokens, 45s shot clock.
+
+# --- Flyweight (3 seats) ---
+# Speed demons and budget picks.
+# 512 tokens, 45s shot clock.
+
+models:
+  # Heavyweight
+  claude-opus-4.6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4.6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+  gpt-5:
+    provider: openrouter
+    model_id: openai/gpt-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+  gemini-2.5-pro:
+    provider: openrouter
+    model_id: google/gemini-2.5-pro
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  # Midtier
+  claude-sonnet-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+  deepseek-v3.2:
+    provider: openrouter
+    model_id: deepseek/deepseek-v3.2
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  # Flyweight
+  haiku-3.5:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 75
+    starting_stack: 300
+    blinds: [1, 2]
+    blind_schedule:
+      20: [2, 4]
+      35: [4, 8]
+      50: [8, 16]
+      65: [16, 32]
+
+shot_clock:
+  default_ms: 45000
+  model_overrides:
+    claude-opus-4.6: 120000
+    gpt-5: 120000
+    gemini-2.5-pro: 120000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0

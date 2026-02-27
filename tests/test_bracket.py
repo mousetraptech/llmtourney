@@ -168,10 +168,11 @@ class TestBracketValidation:
         with pytest.raises(ValueError, match="power-of-2"):
             BracketRunner(config)
 
-    def test_rejects_multiple_events(self):
+    def test_accepts_multiple_events(self):
         config = _make_config(4, num_events=2)
-        with pytest.raises(ValueError, match="exactly one event"):
-            BracketRunner(config)
+        runner = BracketRunner(config)
+        assert runner.multi_event is True
+        assert len(runner.event_names) == 2
 
     def test_accepts_power_of_2(self):
         for n in (2, 4, 8, 16):

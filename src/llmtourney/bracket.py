@@ -72,6 +72,8 @@ class BracketMatch:
     model_b: str
     match_id: str | None = None
     scores: dict[str, float] = field(default_factory=dict)
+    event_scores: dict[str, dict] = field(default_factory=dict)
+    event_match_ids: dict[str, str] = field(default_factory=dict)
     winner: str | None = None
     winner_seed: int | None = None
 
@@ -112,17 +114,76 @@ def determine_winner(
     return model_b, seed_b
 
 
+def determine_multi_event_winner(
+    results: list[MatchResult],
+    seed_a: int,
+    seed_b: int,
+    model_a: str,
+    model_b: str,
+) -> tuple[str, int, dict[str, float], dict[str, dict]]:
+    """Pick winner from multiple event results using event points.
+
+    Each event: win = 1pt, draw = 0.5pt, loss = 0pt.
+    Tiebreaker: total violations across all events, then higher seed.
+    Returns (winner_name, winner_seed, aggregate_scores, event_scores_dict).
+    """
+    points_a = 0.0
+    points_b = 0.0
+    total_viol_a = 0
+    total_viol_b = 0
+    event_scores = {}
+
+    for result in results:
+        sa = result.scores.get("player_a", 0.0)
+        sb = result.scores.get("player_b", 0.0)
+        if sa > sb:
+            pa, pb = 1.0, 0.0
+        elif sb > sa:
+            pa, pb = 0.0, 1.0
+        else:
+            pa, pb = 0.5, 0.5
+        points_a += pa
+        points_b += pb
+        total_viol_a += result.fidelity.get("player_a", {}).get("total_violations", 0)
+        total_viol_b += result.fidelity.get("player_b", {}).get("total_violations", 0)
+        event_scores[result.event] = {
+            "score_a": sa, "score_b": sb,
+            "point_a": pa, "point_b": pb,
+        }
+
+    aggregate = {"player_a": points_a, "player_b": points_b}
+
+    if points_a != points_b:
+        if points_a > points_b:
+            return model_a, seed_a, aggregate, event_scores
+        return model_b, seed_b, aggregate, event_scores
+
+    # Tiebreak: fewer total violations
+    if total_viol_a != total_viol_b:
+        if total_viol_a < total_viol_b:
+            return model_a, seed_a, aggregate, event_scores
+        return model_b, seed_b, aggregate, event_scores
+
+    # Tiebreak: higher seed
+    if seed_a < seed_b:
+        return model_a, seed_a, aggregate, event_scores
+    return model_b, seed_b, aggregate, event_scores
+
+
 # ── BracketRunner ────────────────────────────────────────────────
 
 class BracketRunner:
     """Runs a single-elimination bracket tournament."""
 
-    def __init__(self, config: TournamentConfig) -> None:
+    def __init__(self, config: TournamentConfig, pause_before_final: bool = False) -> None:
         self.config = config
         self.engine = TournamentEngine(config)
+        self.pause_before_final = pause_before_final
         self._validate()
 
-        self.event_name = list(config.events.keys())[0]
+        self.event_names = list(config.events.keys())
+        self.multi_event = len(self.event_names) > 1
+        self.event_name = self.event_names[0]  # primary (for single-event compat)
         self.event_cfg = config.events[self.event_name]
 
         model_names = list(config.models.keys())
@@ -145,10 +206,6 @@ class BracketRunner:
         if n < 2 or (n & (n - 1)) != 0:
             raise ValueError(
                 f"Bracket mode requires a power-of-2 number of models, got {n}"
-            )
-        if len(self.config.events) != 1:
-            raise ValueError(
-                f"Bracket mode requires exactly one event, got {len(self.config.events)}"
             )
 
     def run(self) -> dict:
@@ -174,10 +231,20 @@ class BracketRunner:
             print(f"  {label} (Round {round_num}/{self.num_rounds})")
             print(f"{'='*50}")
 
+            if round_num == self.num_rounds and self.pause_before_final:
+                bm = current_matchups[0]
+                print(f"\n  >>> {bm.model_a} vs {bm.model_b}")
+                input("  Press Enter to start the FINAL... ")
+
             # Pre-generate match_ids so manifest can be written before round starts
             for bm in current_matchups:
                 short_id = uuid.uuid4().hex[:6]
-                bm.match_id = f"{self.event_name}-{bm.model_a}-vs-{bm.model_b}-{short_id}"
+                prefix = self.config.name.split("-bracket")[0] if self.multi_event else self.event_name
+                bm.match_id = f"{prefix}-{bm.model_a}-vs-{bm.model_b}-{short_id}"
+                if self.multi_event:
+                    for event_name in self.event_names:
+                        eid = uuid.uuid4().hex[:6]
+                        bm.event_match_ids[event_name] = f"{event_name}-{bm.model_a}-vs-{bm.model_b}-{eid}"
 
             # Write manifest with in-progress round before matches start
             round_data = {
@@ -220,40 +287,87 @@ class BracketRunner:
         self._write_manifest()
         return self._build_manifest()
 
+    def _run_multi_event_match(self, bm: BracketMatch) -> None:
+        """Run all events for a single bracket match and aggregate results."""
+        results = []
+        for event_name in self.event_names:
+            event_cfg = self.config.events[event_name]
+            event_match_id = bm.event_match_ids[event_name]
+            result = self.engine._run_match(
+                event_name, event_cfg, bm.model_a, bm.model_b, event_match_id
+            )
+            results.append(result)
+            # Print per-event result
+            sa = result.scores.get("player_a", 0.0)
+            sb = result.scores.get("player_b", 0.0)
+            w = "A" if sa > sb else "B" if sb > sa else "="
+            print(f"    {event_name}: {sa:.0f}-{sb:.0f} ({w})")
+
+            # Update intermediate event_scores and manifest so spectator
+            # can track per-event progress in real time
+            pa = 1.0 if sa > sb else (0.0 if sb > sa else 0.5)
+            pb = 1.0 - pa if pa != 0.5 else 0.5
+            bm.event_scores[event_name] = {
+                "score_a": sa, "score_b": sb,
+                "point_a": pa, "point_b": pb,
+            }
+            bm.scores = {
+                "player_a": sum(es["point_a"] for es in bm.event_scores.values()),
+                "player_b": sum(es["point_b"] for es in bm.event_scores.values()),
+            }
+            self._write_manifest()
+
+        winner_name, winner_seed, aggregate, event_scores = determine_multi_event_winner(
+            results, bm.seed_a, bm.seed_b, bm.model_a, bm.model_b
+        )
+        bm.scores = aggregate
+        bm.event_scores = event_scores
+        bm.winner = winner_name
+        bm.winner_seed = winner_seed
+
     def _run_round(self, matchups: list[BracketMatch]) -> None:
         """Run all matches in a round concurrently."""
         with ThreadPoolExecutor(max_workers=len(matchups)) as pool:
-            futures = {
-                pool.submit(
-                    self.engine._run_match,
-                    self.event_name,
-                    self.event_cfg,
-                    bm.model_a,
-                    bm.model_b,
-                    bm.match_id,
-                ): bm
-                for bm in matchups
-            }
+            if self.multi_event:
+                futures = {
+                    pool.submit(self._run_multi_event_match, bm): bm
+                    for bm in matchups
+                }
+            else:
+                futures = {
+                    pool.submit(
+                        self.engine._run_match,
+                        self.event_name,
+                        self.event_cfg,
+                        bm.model_a,
+                        bm.model_b,
+                        bm.match_id,
+                    ): bm
+                    for bm in matchups
+                }
             for future in as_completed(futures):
                 bm = futures[future]
-                result = future.result()
-                bm.scores = {
-                    "player_a": result.scores.get("player_a", 0.0),
-                    "player_b": result.scores.get("player_b", 0.0),
-                }
-                winner_name, winner_seed = determine_winner(
-                    result, bm.seed_a, bm.seed_b
-                )
-                bm.winner = winner_name
-                bm.winner_seed = winner_seed
+                if not self.multi_event:
+                    result = future.result()
+                    bm.scores = {
+                        "player_a": result.scores.get("player_a", 0.0),
+                        "player_b": result.scores.get("player_b", 0.0),
+                    }
+                    winner_name, winner_seed = determine_winner(
+                        result, bm.seed_a, bm.seed_b
+                    )
+                    bm.winner = winner_name
+                    bm.winner_seed = winner_seed
+                else:
+                    future.result()  # already handled in _run_multi_event_match
+                    winner_name = bm.winner
 
-                loser = bm.model_b if winner_name == bm.model_a else bm.model_a
                 print(f"  {bm.model_a} vs {bm.model_b}")
-                print(f"    Score: {bm.scores['player_a']:.0f} - {bm.scores['player_b']:.0f}")
+                print(f"    Score: {bm.scores['player_a']:.1f} - {bm.scores['player_b']:.1f}")
                 print(f"    Winner: {winner_name}")
 
     def _match_to_dict(self, bm: BracketMatch) -> dict:
-        return {
+        d = {
             "position": bm.position,
             "seed_a": bm.seed_a,
             "model_a": bm.model_a,
@@ -263,11 +377,16 @@ class BracketRunner:
             "scores": bm.scores,
             "winner": bm.winner,
         }
+        if bm.event_scores:
+            d["event_scores"] = bm.event_scores
+        if bm.event_match_ids:
+            d["event_match_ids"] = bm.event_match_ids
+        return d
 
     def _build_manifest(self) -> dict:
-        return {
+        d = {
             "tournament_name": self.config.name,
-            "event": self.event_name,
+            "event": "+".join(self.event_names) if self.multi_event else self.event_name,
             "num_models": self.num_models,
             "num_rounds": self.num_rounds,
             "seeds": self.seeds,
@@ -275,6 +394,10 @@ class BracketRunner:
             "champion": self.champion,
             "status": "complete" if self.champion else "in_progress",
         }
+        if self.multi_event:
+            d["events"] = self.event_names
+            d["scoring"] = "event_points"
+        return d
 
     def _write_manifest(self) -> None:
         """Write manifest atomically (tmp + rename)."""
@@ -308,7 +431,14 @@ class BracketRunner:
                 sa, sb = m["seed_a"], m["seed_b"]
                 print(f"    [{sa}] {m['model_a']} vs [{sb}] {m['model_b']}{marker}")
                 if m.get("scores"):
-                    print(f"        {m['scores'].get('player_a', 0):.0f} - {m['scores'].get('player_b', 0):.0f}")
+                    pa = m['scores'].get('player_a', 0)
+                    pb = m['scores'].get('player_b', 0)
+                    fmt = ".1f" if self.multi_event else ".0f"
+                    print(f"        {pa:{fmt}} - {pb:{fmt}}")
+                if m.get("event_scores"):
+                    for ev, es in m["event_scores"].items():
+                        w = "A" if es["point_a"] > es["point_b"] else "B" if es["point_b"] > es["point_a"] else "="
+                        print(f"          {ev}: {es['score_a']:.0f}-{es['score_b']:.0f} ({w})")
                 if m["winner"]:
                     print(f"        Winner: {m['winner']}")
         if self.champion:
