@@ -38,6 +38,7 @@ from llmtourney.events.tictactoe.engine import TicTacToeEvent
 from llmtourney.events.connectfour.engine import ConnectFourEvent
 from llmtourney.events.reversi.engine import ReversiEvent
 from llmtourney.events.bullshit.engine import BullshitEvent
+from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -196,12 +197,20 @@ class TournamentEngine:
         """Call adapter.query, catching AdapterError.
 
         Returns (response, success). On failure, returns a dummy response.
+        Per-model max_output_tokens and timeout_s override global compute_caps.
         """
+        model_cfg = self.config.models.get(model_name)
+        if model_cfg:
+            max_tokens = model_cfg.max_output_tokens
+            timeout_s = model_cfg.timeout_s
+        else:
+            max_tokens = self.config.compute_caps.max_output_tokens
+            timeout_s = self.config.compute_caps.timeout_s
         try:
             response = adapter.query(
                 messages=messages,
-                max_tokens=self.config.compute_caps.max_output_tokens,
-                timeout_s=self.config.compute_caps.timeout_s,
+                max_tokens=max_tokens,
+                timeout_s=timeout_s,
                 context={"seed": seed},
             )
             return response, True
@@ -252,6 +261,11 @@ class TournamentEngine:
             return ReversiEvent(games_per_match=event_cfg.games_per_match)
         if event_name == "bullshit":
             return BullshitEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+            )
+        if event_name == "liarsdice":
+            return LiarsDiceEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
             )

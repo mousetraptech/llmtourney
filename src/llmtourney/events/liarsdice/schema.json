@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Liar's Dice Action",
+  "oneOf": [
+    {
+      "title": "Bid",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "bid" },
+        "quantity": { "type": "integer", "minimum": 1 },
+        "face": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "quantity", "face"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Challenge",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "liar" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -44,7 +44,7 @@ def resolve_jsonl_path(arg: str | None) -> Path:
     if p.exists():
         return p
     # Try with event prefixes
-    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-"):
+    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-"):
         p = TELEMETRY_DIR / f"{prefix}{arg}.jsonl"
         if p.exists():
             return p
@@ -68,6 +68,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "reversi"
     if stem.startswith("bullshit"):
         return "bullshit"
+    if stem.startswith("liarsdice"):
+        return "liarsdice"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -5325,7 +5327,20 @@ body {
   display: flex;
   gap: 3px;
   margin-top: 4px;
+  align-items: center;
 }
+.equity-badge {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--dim);
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  font-variant-numeric: tabular-nums;
+}
+.equity-badge.equity-hot { color: var(--green); background: rgba(63,185,80,0.12); }
+.equity-badge.equity-cold { color: var(--red); background: rgba(248,81,73,0.12); }
 .dealer-btn {
   display: inline-block;
   background: var(--yellow);
@@ -5657,6 +5672,163 @@ function truncateReasoning(text, max) {
   return null;
 }
 
+// ── Equity calculator (WSOP-style) ──────────────────────────────
+var EQUITY_RANKS = '23456789TJQKA';
+var EQUITY_RANK_VAL = {};
+for (var ri = 0; ri < EQUITY_RANKS.length; ri++) EQUITY_RANK_VAL[EQUITY_RANKS[ri]] = ri;
+var FULL_DECK = [];
+(function() {
+  var suits = ['h','d','c','s'];
+  for (var si = 0; si < suits.length; si++)
+    for (var ri = 0; ri < EQUITY_RANKS.length; ri++)
+      FULL_DECK.push(EQUITY_RANKS[ri] + suits[si]);
+})();
+
+function eqParseCard(s) { return { rank: s.slice(0,-1), suit: s.slice(-1) }; }
+
+function eqEvalHand(cards) {
+  // Score a 5-card hand. Higher = better. Format: category<<20 | kickers
+  var vals = cards.map(function(c) { return EQUITY_RANK_VAL[c.rank]; }).sort(function(a,b){return b-a;});
+  var suitSet = {};
+  cards.forEach(function(c) { suitSet[c.suit] = true; });
+  var isFlush = Object.keys(suitSet).length === 1;
+
+  // Straight check
+  var unique = []; var seen = {};
+  vals.forEach(function(v) { if (!seen[v]) { unique.push(v); seen[v] = true; } });
+  unique.sort(function(a,b){return b-a;});
+  var isStraight = false, straightHigh = 0;
+  if (unique.length === 5) {
+    if (unique[0] - unique[4] === 4) { isStraight = true; straightHigh = unique[0]; }
+    else if (unique[0]===12 && unique[1]===3 && unique[2]===2 && unique[3]===1 && unique[4]===0) {
+      isStraight = true; straightHigh = 3; // wheel
+    }
+  }
+
+  // Group by rank count
+  var counts = {};
+  vals.forEach(function(v) { counts[v] = (counts[v]||0) + 1; });
+  var groups = Object.keys(counts).map(function(v) { return [parseInt(v), counts[v]]; });
+  groups.sort(function(a,b) { return b[1]-a[1] || b[0]-a[0]; });
+  var gc = groups.map(function(g){return g[1];});
+  var gv = groups.map(function(g){return g[0];});
+
+  function encodeKickers(arr) {
+    var r = 0;
+    for (var i = 0; i < Math.min(arr.length, 5); i++) r |= arr[i] << (4*(4-i));
+    return r;
+  }
+
+  if (isFlush && isStraight) return (8<<20) | encodeKickers([straightHigh]);
+  if (gc[0]===4) return (7<<20) | encodeKickers([gv[0], gv[1]]);
+  if (gc[0]===3 && gc[1]===2) return (6<<20) | encodeKickers([gv[0], gv[1]]);
+  if (isFlush) return (5<<20) | encodeKickers(vals);
+  if (isStraight) return (4<<20) | encodeKickers([straightHigh]);
+  if (gc[0]===3) return (3<<20) | encodeKickers([gv[0]].concat(gv.slice(1).sort(function(a,b){return b-a;})));
+  if (gc[0]===2 && gc[1]===2) {
+    var hp = Math.max(gv[0],gv[1]), lp = Math.min(gv[0],gv[1]);
+    return (2<<20) | encodeKickers([hp, lp, gv[2]]);
+  }
+  if (gc[0]===2) return (1<<20) | encodeKickers([gv[0]].concat(gv.slice(1).sort(function(a,b){return b-a;})));
+  return (0<<20) | encodeKickers(vals);
+}
+
+function eqBestFive(cards) {
+  // All C(n,5) combos, return best score
+  var best = -1;
+  var n = cards.length;
+  for (var a=0;a<n-4;a++) for (var b=a+1;b<n-3;b++) for (var c=b+1;c<n-2;c++)
+    for (var d=c+1;d<n-1;d++) for (var e=d+1;e<n;e++) {
+      var s = eqEvalHand([cards[a],cards[b],cards[c],cards[d],cards[e]]);
+      if (s > best) best = s;
+    }
+  return best;
+}
+
+function calcEquity(holeCardsMap, communityCards, activePids, numSims) {
+  // Monte Carlo equity for each active player
+  // holeCardsMap: {pid: ["Ah","Kd"], ...}, communityCards: ["2h","7s",...]
+  // Returns {pid: 0.0-1.0, ...}
+  numSims = numSims || 3000;
+  if (!activePids.length) return {};
+
+  // Check all active players have known hole cards
+  var knownPids = [];
+  activePids.forEach(function(pid) {
+    if (holeCardsMap[pid] && holeCardsMap[pid].length === 2) knownPids.push(pid);
+  });
+  if (knownPids.length < 2) return {}; // need at least 2 known hands
+
+  // Build set of known cards
+  var usedSet = {};
+  knownPids.forEach(function(pid) {
+    holeCardsMap[pid].forEach(function(c) { usedSet[c] = true; });
+  });
+  communityCards.forEach(function(c) { usedSet[c] = true; });
+  var remaining = FULL_DECK.filter(function(c) { return !usedSet[c]; });
+  var comNeeded = 5 - communityCards.length;
+
+  // Parse known hole cards
+  var parsedHoles = {};
+  knownPids.forEach(function(pid) {
+    parsedHoles[pid] = holeCardsMap[pid].map(eqParseCard);
+  });
+  var parsedCom = communityCards.map(eqParseCard);
+
+  var wins = {};
+  knownPids.forEach(function(pid) { wins[pid] = 0; });
+
+  // Fisher-Yates partial shuffle (only need comNeeded cards)
+  var deck = remaining.slice();
+  for (var sim = 0; sim < numSims; sim++) {
+    // Partial shuffle: pick comNeeded cards from deck
+    for (var i = 0; i < comNeeded; i++) {
+      var j = i + Math.floor(Math.random() * (deck.length - i));
+      var tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
+    }
+    var simCom = parsedCom.concat(deck.slice(0, comNeeded).map(eqParseCard));
+
+    // Evaluate each player
+    var bestScore = -1, bestPids = [];
+    knownPids.forEach(function(pid) {
+      var all7 = parsedHoles[pid].concat(simCom);
+      var score = eqBestFive(all7);
+      if (score > bestScore) { bestScore = score; bestPids = [pid]; }
+      else if (score === bestScore) bestPids.push(pid);
+    });
+    // Split ties
+    var share = 1.0 / bestPids.length;
+    bestPids.forEach(function(pid) { wins[pid] += share; });
+  }
+
+  var result = {};
+  knownPids.forEach(function(pid) { result[pid] = wins[pid] / numSims; });
+  return result;
+}
+
+// Cached equity to avoid recalc on every render
+var _equityCache = { key: '', equity: {} };
+
+function getEquity() {
+  // Build cache key from hole cards + community + folded
+  var activePids = PIDS.filter(function(pid) {
+    return S.folded.indexOf(pid) < 0 && S.busted.indexOf(pid) < 0 && S.deadSeats.indexOf(pid) < 0;
+  });
+  var keyParts = [];
+  activePids.forEach(function(pid) {
+    var h = S.holeCards[pid] || [];
+    keyParts.push(pid + ':' + h.join(','));
+  });
+  keyParts.push('c:' + (S.communityCards || []).join(','));
+  var key = keyParts.join('|');
+
+  if (key === _equityCache.key) return _equityCache.equity;
+
+  var eq = calcEquity(S.holeCards, S.communityCards || [], activePids);
+  _equityCache = { key: key, equity: eq };
+  return eq;
+}
+
 // ── Match state ──────────────────────────────────────────────────
 var S = {
   matchId: '',
@@ -5752,8 +5924,14 @@ function processTurn(data) {
     PIDS.forEach(function(pid) { S.holeCards[pid] = []; });
   }
 
-  // Extract hole cards from prompt
-  if (playerId && prompt) {
+  // Hole cards from snapshot (all players at once) or fallback to prompt regex
+  if (snap.hole_cards) {
+    for (var hpid in snap.hole_cards) {
+      if (snap.hole_cards[hpid] && snap.hole_cards[hpid].length === 2) {
+        S.holeCards[hpid] = snap.hole_cards[hpid];
+      }
+    }
+  } else if (playerId && prompt) {
     var hm = prompt.match(/Your hole cards:\s*(.+)/);
     if (hm) S.holeCards[playerId] = hm[1].trim().split(/\s+/);
   }
@@ -5851,6 +6029,9 @@ function renderPlayers() {
   var totalChips = 0;
   PIDS.forEach(function(pid) { totalChips += (S.stacks[pid] || 0); });
 
+  // Compute equity once for all players
+  var equity = (S.street !== 'showdown' && !S.finished) ? getEquity() : {};
+
   PIDS.forEach(function(pid) {
     var suf = pid.replace('player_', '');
     var el = document.getElementById('section-' + suf);
@@ -5896,12 +6077,23 @@ function renderPlayers() {
       else if (a === 'forfeit') actionHTML = '<span class="action-badge action-fold">FORFEIT</span>';
     }
 
-    // Hole cards
+    // Hole cards + equity (hide for busted/eliminated)
     var cards = S.holeCards[pid] || [];
     var cardsHTML = '';
-    if (cards.length) {
-      cardsHTML = '<div class="hole-cards">' + cards.map(function(c) { return renderCard(c); }).join('') + '</div>';
-    } else if (S.handNumber > 0 && !isBusted) {
+    if (isBusted || isDead) {
+      // No cards for eliminated players
+    } else if (cards.length) {
+      cardsHTML = '<div class="hole-cards">' + cards.map(function(c) { return renderCard(c); }).join('');
+      // Equity badge
+      if (equity[pid] !== undefined && !isFolded) {
+        var eqPct = (equity[pid] * 100).toFixed(1);
+        var eqCls = 'equity-badge';
+        if (equity[pid] >= 0.5) eqCls += ' equity-hot';
+        else if (equity[pid] < 0.15) eqCls += ' equity-cold';
+        cardsHTML += '<span class="' + eqCls + '">' + eqPct + '%</span>';
+      }
+      cardsHTML += '</div>';
+    } else if (S.handNumber > 0) {
       cardsHTML = '<div class="hole-cards">' + renderCard('??') + renderCard('??') + '</div>';
     }
 
@@ -6053,14 +6245,35 @@ function renderShotClock() {
   } else { strikeEl.innerHTML = ''; }
 }
 
+var _mongoStats = { connected: false, turns: 0, match_synced: false };
+var _mongoLastPoll = 0;
+
+function pollMongoStats() {
+  var now = Date.now();
+  if (now - _mongoLastPoll < 5000) return; // poll every 5s
+  _mongoLastPoll = now;
+  fetch('/mongo-stats').then(function(r) { return r.json(); }).then(function(d) {
+    _mongoStats = d;
+  }).catch(function() {});
+}
+
 function renderFooter() {
+  pollMongoStats();
   var st = document.getElementById('status-text');
   if (S.finished) {
     st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Match Complete';
   } else {
     st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
   }
-  document.getElementById('line-count').textContent = rawLines.length;
+  var lc = document.getElementById('line-count');
+  var mongoHTML = '';
+  if (_mongoStats.connected) {
+    var syncIcon = _mongoStats.match_synced ? '\u2705' : '\u23f3';
+    mongoHTML = ' <span style="color:var(--dim);margin-left:8px">Mongo: ' + _mongoStats.turns + ' turns ' + syncIcon + '</span>';
+  } else {
+    mongoHTML = ' <span style="color:var(--dim);margin-left:8px">Mongo: offline</span>';
+  }
+  lc.innerHTML = rawLines.length + ' turns' + mongoHTML;
 }
 
 function renderAll() {
@@ -6129,11 +6342,12 @@ function drainQueue() {
     renderAll();
     return;
   }
-  var data = turnQueue.shift();
-  processTurn(data);
+  // Fast-forward: process all queued turns, render once at the end
+  while (turnQueue.length) {
+    processTurn(turnQueue.shift());
+  }
+  isReplaying = false;
   renderAll();
-  var delay = data.record_type === 'match_summary' ? 200 : 50;
-  setTimeout(drainQueue, delay);
 }
 
 // Init
@@ -6147,6 +6361,1097 @@ setTimeout(function() {
   else isReplaying = false;
 }, 300);
 
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+
+</script>
+</body>
+</html>"""
+
+
+# ── Liar's Dice HTML/CSS/JS ───────────────────────────────────────
+
+LIARSDICE_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liar's Dice Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --gold: #f0c040;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #d29922;
+  --pe: #f97583;
+  --pf: #79c0ff;
+  --pg: #ffa657;
+  --ph: #b392f0;
+  --pi: #56d4dd;
+  --pj: #e3b341;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 16px; font-weight: bold; }
+#header .stats { color: var(--dim); font-size: 12px; }
+.player-a { color: var(--pa); }
+.player-b { color: var(--pb); }
+.player-c { color: var(--pc); }
+.player-d { color: var(--pd); }
+.player-e { color: var(--pe); }
+.player-f { color: var(--pf); }
+.player-g { color: var(--pg); }
+.player-h { color: var(--ph); }
+.player-i { color: var(--pi); }
+.player-j { color: var(--pj); }
+
+/* Shot clock */
+#shot-clock {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-bottom: 10px;
+  text-align: center;
+  display: none;
+}
+#shot-clock .clock-display {
+  font-size: 22px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+.clock-ok { color: var(--green); }
+.clock-warn { color: var(--yellow); }
+.clock-danger { color: var(--red); animation: pulse 1s infinite; }
+#shot-clock .clock-label { color: var(--dim); font-size: 11px; margin-top: 2px; }
+#shot-clock .strike-info { color: var(--dim); font-size: 11px; margin-top: 4px; }
+
+/* Player cups grid */
+#players {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cup-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  transition: border-color 0.3s, opacity 0.3s;
+  position: relative;
+}
+.cup-panel.active { border-color: var(--green); border-width: 2px; }
+.cup-panel.eliminated { opacity: 0.35; }
+.cup-panel .model-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+.cup-panel .dice-row {
+  display: flex;
+  gap: 5px;
+  margin: 6px 0;
+  flex-wrap: wrap;
+  min-height: 32px;
+}
+.die {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  font-size: 16px;
+  font-weight: bold;
+}
+.die.wild {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: rgba(240,192,64,0.1);
+}
+.die.match {
+  border-color: var(--cyan);
+  background: rgba(88,166,255,0.08);
+}
+.cup-panel .dice-tracker {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+.dice-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: opacity 0.3s;
+}
+.dice-dot.lost { opacity: 0.15; }
+.cup-panel .bluff-rate { font-size: 11px; color: var(--dim); margin-top: 4px; }
+
+/* Current bid panel */
+#bid-panel {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  text-align: center;
+  min-height: 70px;
+  transition: border-color 0.3s;
+}
+#bid-panel.bid-true { border-color: var(--green); }
+#bid-panel.bid-bluff { border-color: var(--red); }
+#bid-panel .bid-text { font-size: 22px; font-weight: bold; margin-bottom: 4px; }
+#bid-panel .bid-truth { font-size: 13px; margin-top: 4px; }
+.truth-true { color: var(--green); }
+.truth-bluff { color: var(--red); }
+
+/* Probability bar */
+#prob-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+#prob-bar .prob-label { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+#prob-bar .bar-track {
+  height: 18px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+#prob-bar .bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s, background 0.3s;
+}
+#prob-bar .bar-value {
+  position: absolute;
+  right: 8px;
+  top: 0;
+  line-height: 18px;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+}
+
+/* Main content grid: bid ladder + elimination log */
+#content-grid {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+@media (max-width: 800px) {
+  #content-grid { grid-template-columns: 1fr; }
+}
+
+/* Bid ladder */
+#bid-ladder {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+#bid-ladder .ladder-title { font-weight: bold; margin-bottom: 6px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.bid-entry {
+  padding: 3px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bid-entry.current { font-weight: bold; }
+.bid-entry .arrow { color: var(--yellow); }
+.bid-entry .truth-mark { font-size: 11px; margin-left: auto; }
+.bid-entry .truth-mark.true { color: var(--green); }
+.bid-entry .truth-mark.false { color: var(--red); }
+
+/* Elimination log + dice lost */
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sidebar-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.sidebar-panel .panel-title { font-weight: bold; margin-bottom: 6px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.sidebar-panel .entry { font-size: 12px; padding: 2px 0; }
+.sidebar-panel .dice-summary { font-size: 12px; padding: 2px 0; display: flex; gap: 4px; align-items: center; }
+
+/* Commentary */
+#commentary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+#commentary .panel-title { font-weight: bold; margin-bottom: 6px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.comment-entry {
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.comment-entry:last-child { border-bottom: none; }
+.comment-entry .action-text { }
+.comment-entry .reasoning { color: var(--dim); font-style: italic; margin-top: 2px; font-size: 11px; }
+.comment-entry .bluff-tag { color: var(--red); font-weight: bold; font-size: 10px; }
+.comment-entry .latency { color: var(--dim); font-size: 10px; }
+
+/* Challenge reveal */
+#challenge-reveal {
+  background: var(--surface);
+  border: 2px solid var(--yellow);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  display: none;
+  text-align: center;
+}
+#challenge-reveal .reveal-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: var(--yellow); }
+#challenge-reveal .reveal-detail { font-size: 13px; margin: 4px 0; }
+#challenge-reveal .reveal-result { font-size: 15px; font-weight: bold; margin-top: 8px; }
+.reveal-correct { color: var(--green); }
+.reveal-wrong { color: var(--red); }
+
+/* Final results */
+#final-results {
+  background: var(--surface);
+  border: 2px solid var(--green);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 10px;
+  text-align: center;
+  display: none;
+}
+#final-results .final-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; }
+#final-results .final-scores { font-size: 14px; }
+#final-results .winner { color: var(--green); font-weight: bold; }
+
+/* Footer */
+#footer {
+  text-align: center;
+  color: var(--dim);
+  font-size: 11px;
+  padding: 8px 0;
+}
+
+/* Replay controls */
+#replay-controls {
+  position: fixed; bottom: 12px; right: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex; gap: 6px; align-items: center;
+  z-index: 100;
+}
+#replay-controls button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+  font-family: inherit;
+}
+#replay-controls button:hover { border-color: var(--cyan); }
+#replay-controls button.active { background: var(--cyan); color: #000; }
+#replay-controls .speed-label { color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="badge" class="badge badge-live">LIVE</span>
+  <span class="title">LIAR'S DICE</span>
+  <span id="round-info" class="stats">Round 1 | 20 dice in play | 0 eliminated</span>
+</div>
+
+<div id="shot-clock">
+  <div id="clock-display" class="clock-display clock-ok">30.0s</div>
+  <div id="clock-label" class="clock-label">SHOT CLOCK</div>
+  <div id="strike-info" class="strike-info"></div>
+</div>
+
+<div id="players"></div>
+
+<div id="bid-panel">
+  <div class="bid-text" id="bid-text">Waiting for first bid...</div>
+  <div class="bid-truth" id="bid-truth"></div>
+</div>
+
+<div id="prob-bar">
+  <div class="prob-label" id="prob-label">P(bid is true)</div>
+  <div class="bar-track">
+    <div class="bar-fill" id="bar-fill" style="width:0%"></div>
+    <span class="bar-value" id="bar-value">—</span>
+  </div>
+</div>
+
+<div id="challenge-reveal"></div>
+
+<div id="content-grid">
+  <div id="bid-ladder">
+    <div class="ladder-title">Bid Ladder</div>
+    <div id="ladder-entries"></div>
+  </div>
+  <div id="sidebar">
+    <div class="sidebar-panel">
+      <div class="panel-title">Elimination Log</div>
+      <div id="elim-log"></div>
+    </div>
+    <div class="sidebar-panel">
+      <div class="panel-title">Dice Remaining</div>
+      <div id="dice-remaining"></div>
+    </div>
+  </div>
+</div>
+
+<div id="commentary">
+  <div class="panel-title">Commentary</div>
+  <div id="comment-entries"></div>
+</div>
+
+<div id="final-results">
+  <div class="final-title" id="final-title"></div>
+  <div class="final-scores" id="final-scores"></div>
+</div>
+
+<div id="footer">Liar's Dice Spectator &middot; God Mode</div>
+
+<div id="replay-controls">
+  <button id="btn-pause">&#x23F8;</button>
+  <button id="btn-step">&gt;</button>
+  <button id="btn-speed" class="speed-label">1x</button>
+  <button id="btn-restart">&#x21BA;</button>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────
+var PIDS = [];
+var LABELS = {};
+var CLASS_NAMES = {};
+var SUFFIXES = {};
+var _playersInitialized = false;
+var FACE_NAMES = {1:'ones',2:'twos',3:'threes',4:'fours',5:'fives',6:'sixes'};
+
+var S = {
+  finished: false,
+  finalScores: {},
+  models: {},
+  round: 1,
+  turnNumber: 0,
+  turnCount: 0,
+  totalDice: 0,
+  diceCounts: {},
+  allDice: {},
+  currentBid: null,
+  bidHistory: [],
+  wildsActive: true,
+  eliminated: [],
+  activePlayer: '',
+  matchScores: {},
+  playerStats: {},
+  challengeResult: null,
+  roundHistory: [],
+  gameNumber: 1,
+  gamesPerMatch: 1,
+  // commentary log
+  commentLog: [],
+  // shot clock
+  shotClock: { timeLimitMs: 0, lastTurnTime: 0, waitingOn: '', strikes: {}, strikeLimit: 0 },
+  violations: {},
+  lastReasoning: '',
+  lastModel: '',
+};
+
+// Player colors
+var PLAYER_COLORS = ['--pa','--pb','--pc','--pd','--pe','--pf','--pg','--ph','--pi','--pj'];
+
+function initPlayers(diceCounts) {
+  PIDS = Object.keys(diceCounts).sort();
+  var grid = document.getElementById('players');
+  grid.innerHTML = '';
+  var cols = Math.min(PIDS.length, 5);
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+
+  var letters = 'ABCDEFGHIJ';
+  PIDS.forEach(function(pid, i) {
+    LABELS[pid] = letters[i];
+    CLASS_NAMES[pid] = 'player-' + letters[i].toLowerCase();
+    SUFFIXES[pid] = letters[i].toLowerCase();
+
+    var panel = document.createElement('div');
+    panel.className = 'cup-panel';
+    panel.id = 'cup-' + SUFFIXES[pid];
+    panel.innerHTML =
+      '<div class="model-name ' + CLASS_NAMES[pid] + '" id="name-' + SUFFIXES[pid] + '">Player ' + LABELS[pid] + '</div>' +
+      '<div class="dice-row" id="dice-' + SUFFIXES[pid] + '"></div>' +
+      '<div class="dice-tracker" id="tracker-' + SUFFIXES[pid] + '"></div>' +
+      '<div class="bluff-rate" id="bluff-' + SUFFIXES[pid] + '"></div>';
+    grid.appendChild(panel);
+  });
+  _playersInitialized = true;
+}
+
+// ── Replay machinery ──────────────────────────────────────────────
+var allEvents = [];
+var replayIdx = 0;
+var isReplaying = false;
+var isPaused = false;
+var playbackSpeed = 1;
+var playTimer = null;
+var speeds = [0.25, 0.5, 1, 2, 4, 8];
+var speedIdx = 2;
+
+function resetState() {
+  _playersInitialized = false;
+  S.finished = false; S.finalScores = {}; S.models = {};
+  S.round = 1; S.turnNumber = 0; S.turnCount = 0;
+  S.totalDice = 0; S.diceCounts = {}; S.allDice = {};
+  S.currentBid = null; S.bidHistory = []; S.wildsActive = true;
+  S.eliminated = []; S.activePlayer = ''; S.matchScores = {};
+  S.playerStats = {}; S.challengeResult = null; S.roundHistory = [];
+  S.gameNumber = 1; S.gamesPerMatch = 1; S.commentLog = [];
+  S.shotClock = { timeLimitMs: 0, lastTurnTime: 0, waitingOn: '', strikes: {}, strikeLimit: 0 };
+  S.violations = {}; S.lastReasoning = ''; S.lastModel = '';
+  document.getElementById('players').innerHTML = '';
+}
+
+function startReplay() {
+  isReplaying = true;
+  replayIdx = 0;
+  resetState();
+  scheduleNext();
+}
+
+function scheduleNext() {
+  if (isPaused || replayIdx >= allEvents.length) return;
+  var base = allEvents[replayIdx].record_type === 'match_summary' ? 400 : 80;
+  var delay = base / playbackSpeed;
+  playTimer = setTimeout(function() {
+    processEvent(allEvents[replayIdx]);
+    renderAll();
+    replayIdx++;
+    if (replayIdx < allEvents.length) scheduleNext();
+    else { isReplaying = false; renderShotClock(); }
+  }, delay);
+}
+
+document.getElementById('btn-pause').onclick = function() {
+  isPaused = !isPaused;
+  this.textContent = isPaused ? '\u25B6' : '\u23F8';
+  if (!isPaused) scheduleNext();
+  else clearTimeout(playTimer);
+};
+document.getElementById('btn-step').onclick = function() {
+  isPaused = true;
+  document.getElementById('btn-pause').textContent = '\u25B6';
+  clearTimeout(playTimer);
+  if (replayIdx < allEvents.length) {
+    processEvent(allEvents[replayIdx]);
+    renderAll();
+    replayIdx++;
+  }
+};
+document.getElementById('btn-speed').onclick = function() {
+  speedIdx = (speedIdx + 1) % speeds.length;
+  playbackSpeed = speeds[speedIdx];
+  this.textContent = playbackSpeed + 'x';
+};
+document.getElementById('btn-restart').onclick = function() {
+  clearTimeout(playTimer);
+  isPaused = false;
+  document.getElementById('btn-pause').textContent = '\u23F8';
+  startReplay();
+};
+
+// ── Binomial probability ──────────────────────────────────────────
+function binomPmf(k, n, p) {
+  if (k < 0 || k > n) return 0;
+  var coeff = 1;
+  for (var i = 0; i < k; i++) coeff = coeff * (n - i) / (i + 1);
+  return coeff * Math.pow(p, k) * Math.pow(1 - p, n - k);
+}
+
+function bidProbability(bidQty, bidFace, ownDice, totalDice, wildsActive) {
+  var known = 0;
+  ownDice.forEach(function(d) {
+    if (d === bidFace) known++;
+    else if (d === 1 && wildsActive && bidFace !== 1) known++;
+  });
+  var needed = bidQty - known;
+  if (needed <= 0) return 1.0;
+  var unknown = totalDice - ownDice.length;
+  if (unknown <= 0) return 0.0;
+  var p = (wildsActive && bidFace !== 1) ? 1/3 : 1/6;
+  var probLess = 0;
+  for (var k = 0; k < needed; k++) probLess += binomPmf(k, unknown, p);
+  return 1.0 - probLess;
+}
+
+// ── Event processing ──────────────────────────────────────────────
+function processEvent(data) {
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    var pm = data.player_models || {};
+    PIDS.forEach(function(pid) { if (pm[pid]) S.models[pid] = pm[pid]; });
+    return;
+  }
+
+  S.turnCount++;
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  if (snap.dice_counts && !_playersInitialized) initPlayers(snap.dice_counts);
+  if (pid && mid) S.models[pid] = mid;
+
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined && pid) S.shotClock.strikes[pid] = data.cumulative_strikes;
+  S.shotClock.lastTurnTime = Date.now();
+  S.shotClock.waitingOn = snap.active_player || S.activePlayer;
+
+  S.gameNumber = snap.game_number || S.gameNumber;
+  S.gamesPerMatch = snap.games_per_match || S.gamesPerMatch;
+  S.round = snap.round || S.round;
+  S.turnNumber = snap.turn_number || S.turnNumber;
+  S.totalDice = snap.total_dice || S.totalDice;
+  S.diceCounts = snap.dice_counts || S.diceCounts;
+  S.allDice = snap.all_dice || S.allDice;
+  S.currentBid = snap.current_bid || null;
+  S.bidHistory = snap.bid_history || S.bidHistory;
+  S.wildsActive = snap.wilds_active !== undefined ? snap.wilds_active : S.wildsActive;
+  S.eliminated = snap.eliminated || S.eliminated;
+  S.activePlayer = snap.active_player || S.activePlayer;
+  S.matchScores = snap.match_scores || S.matchScores;
+  S.playerStats = snap.player_stats || S.playerStats;
+  if (snap.challenge_result) S.challengeResult = snap.challenge_result;
+  if (snap.round_history) S.roundHistory = snap.round_history;
+
+  // Build commentary entry
+  var parsed = data.parsed_action || {};
+  var reasoning = data.reasoning_output || '';
+  if (reasoning) {
+    S.lastReasoning = reasoning.length > 200 ? reasoning.substring(0, 197) + '...' : reasoning;
+    S.lastModel = mid;
+  }
+
+  var comment = {
+    round: S.round,
+    player: pid,
+    model: mid || S.models[pid] || '',
+    action: parsed.action || '',
+    quantity: parsed.quantity,
+    face: parsed.face,
+    latency: data.latency_ms ? (data.latency_ms / 1000).toFixed(1) : '?',
+    reasoning: reasoning ? (reasoning.length > 150 ? reasoning.substring(0, 147) + '...' : reasoning) : '',
+    violation: data.violation || null,
+    isBluff: false,
+  };
+
+  // Annotate bluffs for god mode
+  if (parsed.action === 'bid' && snap.bid_history && snap.bid_history.length) {
+    var lastBid = snap.bid_history[snap.bid_history.length - 1];
+    if (lastBid && lastBid.is_bluff) comment.isBluff = true;
+  }
+
+  if (parsed.action === 'liar' && snap.challenge_result) {
+    comment.challengeResult = snap.challenge_result;
+  }
+
+  S.commentLog.push(comment);
+
+  if (data.violation && pid) S.violations[pid] = (S.violations[pid] || 0) + 1;
+}
+
+// ── Rendering ─────────────────────────────────────────────────────
+function renderAll() {
+  if (!_playersInitialized) return;
+  renderHeader();
+  renderShotClock();
+  renderPlayers();
+  renderBidPanel();
+  renderProbBar();
+  renderChallengeReveal();
+  renderBidLadder();
+  renderSidebar();
+  renderCommentary();
+  renderFinal();
+}
+
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs) return;
+  el.style.display = 'block';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (S.shotClock.lastTurnTime && !isReplaying) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var cls = 'clock-display ';
+    if (remaining <= 5000) cls += 'clock-danger';
+    else if (remaining <= 10000) cls += 'clock-warn';
+    else cls += 'clock-ok';
+    display.className = cls;
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wModel = S.models[S.shotClock.waitingOn] || S.shotClock.waitingOn;
+  label.innerHTML = 'SHOT CLOCK <span style="color:var(--dim)">&middot;</span> ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var parts = [];
+    PIDS.forEach(function(pid) {
+      var s = S.shotClock.strikes[pid] || 0;
+      var m = S.models[pid] || LABELS[pid];
+      parts.push('<span class="' + CLASS_NAMES[pid] + '">' + m + ': ' + s + '/' + S.shotClock.strikeLimit + '</span>');
+    });
+    strikeEl.innerHTML = parts.join(' &middot; ');
+  }
+  if (S.finished) el.style.display = 'none';
+}
+
+function renderHeader() {
+  var badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  var elimCount = S.eliminated.length;
+  var info = 'Round ' + S.round;
+  if (S.gamesPerMatch > 1) info = 'Game ' + S.gameNumber + ' | ' + info;
+  info += ' | ' + S.totalDice + ' dice in play | ' + elimCount + ' eliminated';
+  document.getElementById('round-info').textContent = info;
+}
+
+function renderPlayers() {
+  PIDS.forEach(function(pid) {
+    var suf = SUFFIXES[pid];
+    var panel = document.getElementById('cup-' + suf);
+    if (!panel) return;
+
+    var isElim = S.eliminated.indexOf(pid) >= 0;
+    var isActive = (S.activePlayer === pid && !S.finished);
+    panel.className = 'cup-panel' + (isActive ? ' active' : '') + (isElim ? ' eliminated' : '');
+
+    // Model name
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    var nameEl = document.getElementById('name-' + suf);
+    nameEl.innerHTML = '<span class="' + CLASS_NAMES[pid] + '">' + LABELS[pid] + '</span> ' + model;
+
+    // Dice display (god mode: show actual values)
+    var diceEl = document.getElementById('dice-' + suf);
+    var dice = S.allDice[pid] || [];
+    var bidFace = S.currentBid ? S.currentBid.face : 0;
+    var html = '';
+    dice.forEach(function(d) {
+      var cls = 'die';
+      if (d === 1 && S.wildsActive) cls += ' wild';
+      if (d === bidFace || (d === 1 && S.wildsActive && bidFace !== 1 && bidFace > 0)) cls += ' match';
+      html += '<div class="' + cls + '">' + d + '</div>';
+    });
+    if (isElim) html = '<span style="color:var(--dim)">ELIMINATED</span>';
+    diceEl.innerHTML = html;
+
+    // Dice tracker (filled/empty dots)
+    var trackerEl = document.getElementById('tracker-' + suf);
+    var startDice = 5; // will be overridden
+    // Determine starting dice from first seen count or default
+    var maxDice = 0;
+    PIDS.forEach(function(p) {
+      var c = S.diceCounts[p] || 0;
+      var lost = (S.playerStats[p] || {}).dice_lost || 0;
+      if (c + lost > maxDice) maxDice = c + lost;
+    });
+    startDice = maxDice || 5;
+
+    var current = S.diceCounts[pid] || 0;
+    var dots = '';
+    for (var i = 0; i < startDice; i++) {
+      dots += '<div class="dice-dot' + (i >= current ? ' lost' : '') + '"></div>';
+    }
+    trackerEl.innerHTML = dots;
+
+    // Bluff rate
+    var bluffEl = document.getElementById('bluff-' + suf);
+    var stats = S.playerStats[pid] || {};
+    var totalBids = stats.total_bids || 0;
+    var bluffBids = stats.bluff_bids || 0;
+    var rate = totalBids > 0 ? Math.round(100 * bluffBids / totalBids) : 0;
+    var challengeInfo = '';
+    if (stats.challenges_made > 0) {
+      challengeInfo = ' | Challenges: ' + stats.challenges_won + '/' + stats.challenges_made;
+    }
+    bluffEl.innerHTML = 'Bluff: ' + rate + '% (' + bluffBids + '/' + totalBids + ')' + challengeInfo;
+  });
+}
+
+function renderBidPanel() {
+  var panel = document.getElementById('bid-panel');
+  var textEl = document.getElementById('bid-text');
+  var truthEl = document.getElementById('bid-truth');
+
+  if (!S.currentBid) {
+    panel.className = 'bid-panel';
+    // Check if we just had a challenge (bid is null because new round started)
+    if (S.challengeResult) {
+      var cr = S.challengeResult;
+      var cModel = S.models[cr.challenger] || cr.challenger;
+      var bModel = S.models[cr.bidder] || cr.bidder;
+      var lModel = S.models[cr.loser] || cr.loser;
+      textEl.innerHTML = 'CHALLENGE RESOLVED';
+      var detail = cModel + ' challenged ' + bModel + '\'s bid of ' +
+        cr.bid.quantity + ' ' + FACE_NAMES[cr.bid.face] + ' &mdash; ';
+      if (cr.bid_was_correct) {
+        detail += '<span class="truth-true">BID WAS CORRECT (' + cr.actual_count + ' found)</span>';
+        panel.className = 'bid-panel bid-true';
+      } else {
+        detail += '<span class="truth-bluff">BID WAS WRONG (' + cr.actual_count + ' found)</span>';
+        panel.className = 'bid-panel bid-bluff';
+      }
+      detail += ' &mdash; <strong>' + lModel + ' loses a die</strong>';
+      if (cr.eliminated) detail += ' <span style="color:var(--red)">(ELIMINATED)</span>';
+      truthEl.innerHTML = detail;
+    } else {
+      textEl.textContent = 'Waiting for first bid...';
+      truthEl.textContent = '';
+    }
+    return;
+  }
+
+  var bid = S.currentBid;
+  var bidder = S.models[bid.bidder] || bid.bidder;
+  var bidderClass = CLASS_NAMES[bid.bidder] || '';
+  textEl.innerHTML = '<span class="' + bidderClass + '">' + bidder + '</span> bids: ' +
+    '<strong>' + bid.quantity + ' ' + FACE_NAMES[bid.face].toUpperCase() + '</strong>';
+
+  // God mode: show actual count
+  var actual = countFace(bid.face);
+  var isTrue = actual >= bid.quantity;
+  panel.className = isTrue ? 'bid-panel bid-true' : 'bid-panel bid-bluff';
+
+  // Show breakdown
+  var faceCount = 0;
+  var wildCount = 0;
+  PIDS.forEach(function(pid) {
+    (S.allDice[pid] || []).forEach(function(d) {
+      if (d === bid.face) faceCount++;
+      else if (d === 1 && S.wildsActive && bid.face !== 1) wildCount++;
+    });
+  });
+
+  var truthHTML = 'Actual: <strong>' + faceCount + '</strong> ' + FACE_NAMES[bid.face];
+  if (S.wildsActive && bid.face !== 1) {
+    truthHTML += ' + <strong style="color:var(--gold)">' + wildCount + '</strong> wilds';
+  }
+  truthHTML += ' = <strong>' + actual + ' total</strong> ';
+  if (isTrue) {
+    truthHTML += '<span class="truth-true">BID IS TRUE</span>';
+  } else {
+    truthHTML += '<span class="truth-bluff">BLUFF (' + actual + ' < ' + bid.quantity + ')</span>';
+  }
+  truthEl.innerHTML = truthHTML;
+}
+
+function countFace(face) {
+  var count = 0;
+  PIDS.forEach(function(pid) {
+    (S.allDice[pid] || []).forEach(function(d) {
+      if (d === face) count++;
+      else if (d === 1 && S.wildsActive && face !== 1) count++;
+    });
+  });
+  return count;
+}
+
+function renderProbBar() {
+  var label = document.getElementById('prob-label');
+  var fill = document.getElementById('bar-fill');
+  var value = document.getElementById('bar-value');
+
+  if (!S.currentBid) {
+    label.textContent = 'P(bid is true) — no active bid';
+    fill.style.width = '0%';
+    fill.style.background = 'var(--dim)';
+    value.textContent = '—';
+    return;
+  }
+
+  // Calculate probability for the active player (spectator perspective: use empty own_dice)
+  // Actually for god mode we can show true probability or naive probability
+  // Let's show naive probability (what a player would estimate with no info)
+  var bid = S.currentBid;
+  var prob = bidProbability(bid.quantity, bid.face, [], S.totalDice, S.wildsActive);
+  var pct = Math.round(prob * 1000) / 10;
+
+  label.innerHTML = 'Current bid "' + bid.quantity + ' ' + FACE_NAMES[bid.face] + '" &mdash; P(true) = <strong>' + pct.toFixed(1) + '%</strong>' +
+    '  <span style="color:var(--dim)">Based on: ' + S.totalDice + ' total dice, wilds ' + (S.wildsActive ? 'active' : 'OFF') + '</span>';
+
+  fill.style.width = pct + '%';
+  if (pct >= 60) fill.style.background = 'var(--green)';
+  else if (pct >= 30) fill.style.background = 'var(--yellow)';
+  else fill.style.background = 'var(--red)';
+
+  value.textContent = pct.toFixed(1) + '%';
+}
+
+function renderChallengeReveal() {
+  var el = document.getElementById('challenge-reveal');
+  if (!S.challengeResult || S.currentBid) {
+    el.style.display = 'none';
+    return;
+  }
+  var cr = S.challengeResult;
+  el.style.display = 'block';
+
+  var challengerModel = S.models[cr.challenger] || cr.challenger;
+  var bidderModel = S.models[cr.bidder] || cr.bidder;
+  var challengerClass = CLASS_NAMES[cr.challenger] || '';
+  var bidderClass = CLASS_NAMES[cr.bidder] || '';
+
+  var html = '<div class="reveal-title">CHALLENGE!</div>';
+  html += '<div class="reveal-detail"><span class="' + challengerClass + '">' + challengerModel +
+    '</span> calls LIAR on <span class="' + bidderClass + '">' + bidderModel + '</span></div>';
+  html += '<div class="reveal-detail">Bid: <strong>' + cr.bid.quantity + ' ' + FACE_NAMES[cr.bid.face] + '</strong></div>';
+
+  // Show actual count with breakdown
+  html += '<div class="reveal-detail">Actual: ' + cr.face_count + ' ' + FACE_NAMES[cr.bid.face];
+  if (cr.wilds_counted > 0) html += ' + ' + cr.wilds_counted + ' wilds';
+  html += ' = <strong>' + cr.actual_count + ' total</strong></div>';
+
+  var loserModel = S.models[cr.loser] || cr.loser;
+  var loserClass = CLASS_NAMES[cr.loser] || '';
+  if (cr.bid_was_correct) {
+    html += '<div class="reveal-result reveal-wrong">Bid was CORRECT &mdash; <span class="' + loserClass + '">' + loserModel + '</span> loses a die!</div>';
+  } else {
+    html += '<div class="reveal-result reveal-correct">Bid was WRONG &mdash; <span class="' + loserClass + '">' + loserModel + '</span> loses a die!</div>';
+  }
+  if (cr.eliminated) html += '<div style="color:var(--red);font-weight:bold;margin-top:4px">' + loserModel + ' ELIMINATED</div>';
+
+  el.innerHTML = html;
+}
+
+function renderBidLadder() {
+  var entries = document.getElementById('ladder-entries');
+  var html = '';
+  var history = S.bidHistory || [];
+
+  if (history.length === 0 && S.challengeResult && !S.currentBid) {
+    // Just had a challenge, show last round's bids from roundHistory
+    if (S.roundHistory && S.roundHistory.length) {
+      var lastRound = S.roundHistory[S.roundHistory.length - 1];
+      history = lastRound.bids || [];
+      html += '<div style="color:var(--dim);font-size:11px;margin-bottom:4px">Previous round:</div>';
+    }
+  }
+
+  history.forEach(function(bid, i) {
+    var isCurrent = (i === history.length - 1) && S.currentBid;
+    var model = S.models[bid.player] || LABELS[bid.player] || bid.player;
+    var cls = CLASS_NAMES[bid.player] || '';
+    var arrow = isCurrent ? '<span class="arrow">&rarr;</span>' : '&nbsp;&nbsp;';
+    var truthMark = '';
+    if (bid.is_bluff !== undefined) {
+      if (bid.is_bluff) truthMark = '<span class="truth-mark false">&times; bluff</span>';
+      else truthMark = '<span class="truth-mark true">&check; true</span>';
+    }
+    html += '<div class="bid-entry' + (isCurrent ? ' current' : '') + '">' +
+      arrow + ' <span class="' + cls + '">' + model + '</span>: ' +
+      bid.quantity + ' ' + FACE_NAMES[bid.face] + truthMark + '</div>';
+  });
+
+  if (html === '') html = '<div style="color:var(--dim)">No bids yet this round</div>';
+  entries.innerHTML = html;
+}
+
+function renderSidebar() {
+  // Elimination log
+  var elimEl = document.getElementById('elim-log');
+  var elimHtml = '';
+  S.eliminated.forEach(function(pid, i) {
+    var model = S.models[pid] || LABELS[pid] || pid;
+    var cls = CLASS_NAMES[pid] || '';
+    elimHtml += '<div class="entry"><span class="' + cls + '">' + model + '</span></div>';
+  });
+  if (!elimHtml) elimHtml = '<div class="entry" style="color:var(--dim)">None yet</div>';
+  elimEl.innerHTML = elimHtml;
+
+  // Dice remaining
+  var diceEl = document.getElementById('dice-remaining');
+  var diceHtml = '';
+  PIDS.forEach(function(pid) {
+    var model = S.models[pid] || LABELS[pid];
+    var cls = CLASS_NAMES[pid] || '';
+    var count = S.diceCounts[pid] || 0;
+    var isElim = S.eliminated.indexOf(pid) >= 0;
+    var maxDice = 0;
+    PIDS.forEach(function(p) {
+      var c = S.diceCounts[p] || 0;
+      var lost = (S.playerStats[p] || {}).dice_lost || 0;
+      if (c + lost > maxDice) maxDice = c + lost;
+    });
+    var startDice = maxDice || 5;
+    var dots = '';
+    for (var i = 0; i < startDice; i++) {
+      dots += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px;' +
+        'background:' + (i < count ? 'var(' + PLAYER_COLORS[PIDS.indexOf(pid)] + ')' : 'var(--border)') + '"></span>';
+    }
+    diceHtml += '<div class="dice-summary' + (isElim ? ' style="opacity:0.35"' : '') + '">' +
+      '<span class="' + cls + '" style="width:20px;display:inline-block">' + LABELS[pid] + '</span> ' +
+      dots + ' <span style="color:var(--dim)">(' + count + ')</span></div>';
+  });
+  diceEl.innerHTML = diceHtml;
+}
+
+function renderCommentary() {
+  var el = document.getElementById('comment-entries');
+  var html = '';
+  var entries = S.commentLog.slice(-20);
+  entries.forEach(function(c) {
+    var cls = '';
+    PIDS.forEach(function(pid) { if (pid === c.player) cls = CLASS_NAMES[pid]; });
+    var model = c.model || S.models[c.player] || c.player;
+
+    html += '<div class="comment-entry">';
+    html += '<span style="color:var(--dim)">R' + c.round + '</span> ';
+    html += '<span class="' + cls + '">' + model + '</span> ';
+
+    if (c.action === 'bid') {
+      html += 'bids <strong>' + c.quantity + ' ' + FACE_NAMES[c.face] + '</strong>';
+      html += ' <span class="latency">(' + c.latency + 's)</span>';
+      if (c.isBluff) html += ' <span class="bluff-tag">&larr; BLUFF</span>';
+    } else if (c.action === 'liar') {
+      html += 'calls <strong>LIAR!</strong>';
+      html += ' <span class="latency">(' + c.latency + 's)</span>';
+      if (c.challengeResult) {
+        var cr = c.challengeResult;
+        if (cr.bid_was_correct) {
+          html += ' &mdash; <span style="color:var(--red)">Wrong call! (' + cr.actual_count + ' found)</span>';
+        } else {
+          html += ' &mdash; <span style="color:var(--green)">Caught! (' + cr.actual_count + ' found, bid was ' + cr.bid.quantity + ')</span>';
+        }
+      }
+    } else if (c.violation) {
+      html += '<span style="color:var(--red)">VIOLATION: ' + c.violation + '</span>';
+    }
+
+    if (c.reasoning) {
+      html += '<div class="reasoning">"' + c.reasoning + '"</div>';
+    }
+    html += '</div>';
+  });
+
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderFinal() {
+  var el = document.getElementById('final-results');
+  if (!S.finished) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+
+  var scores = S.finalScores || S.matchScores;
+  var title = document.getElementById('final-title');
+
+  // Find winner (highest score)
+  var maxScore = -1;
+  var winner = '';
+  PIDS.forEach(function(pid) {
+    var sc = scores[pid] || 0;
+    if (sc > maxScore) { maxScore = sc; winner = pid; }
+  });
+
+  var winnerModel = S.models[winner] || winner;
+  title.innerHTML = '<span class="' + CLASS_NAMES[winner] + '">' + winnerModel + '</span> WINS!';
+
+  var scoresHtml = '';
+  // Sort by score descending
+  var sorted = PIDS.slice().sort(function(a, b) { return (scores[b] || 0) - (scores[a] || 0); });
+  sorted.forEach(function(pid, i) {
+    var model = S.models[pid] || LABELS[pid];
+    var sc = scores[pid] || 0;
+    var cls = CLASS_NAMES[pid] || '';
+    var prefix = i === 0 ? '<span class="winner">' : '<span>';
+    scoresHtml += '<div>' + prefix + (i + 1) + '. <span class="' + cls + '">' + model + '</span>: ' + Math.round(sc) + ' pts</span></div>';
+  });
+  document.getElementById('final-scores').innerHTML = scoresHtml;
+}
+
+// ── EventSource ───────────────────────────────────────────────────
+var evtPath = '/events';
+if (window.MATCH_ID) evtPath = '/events/' + window.MATCH_ID;
+var es = new EventSource(evtPath);
+
+es.onmessage = function(evt) {
+  var data;
+  try { data = JSON.parse(evt.data); } catch(e) { return; }
+  allEvents.push(data);
+  if (!isReplaying) {
+    processEvent(data);
+    renderAll();
+  }
+};
+
+es.addEventListener('done', function() { es.close(); });
+
+// Tick shot clock
 setInterval(function() {
   if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
 }, 100);
@@ -6998,6 +8303,26 @@ function escapeHtml(text) {
 
 # ── HTTP Handler ──────────────────────────────────────────────────
 
+def _get_mongo_client():
+    """Lazy singleton Mongo client for spectator stats."""
+    if not hasattr(_get_mongo_client, '_client'):
+        import os
+        uri = os.environ.get('TOURNEY_MONGO_URI')
+        if uri:
+            try:
+                from pymongo import MongoClient
+                _get_mongo_client._client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+                _get_mongo_client._client.admin.command('ping')
+                _get_mongo_client._db = _get_mongo_client._client['llmtourney']
+            except Exception:
+                _get_mongo_client._client = None
+                _get_mongo_client._db = None
+        else:
+            _get_mongo_client._client = None
+            _get_mongo_client._db = None
+    return _get_mongo_client._db
+
+
 class SpectatorHandler(BaseHTTPRequestHandler):
     jsonl_path: Path  # set on class before serving
     html_page: str = ""  # set on class before serving
@@ -7014,6 +8339,8 @@ class SpectatorHandler(BaseHTTPRequestHandler):
             self._serve_runlog()
         elif self.path == '/filepath':
             self._serve_filepath()
+        elif self.path == '/mongo-stats':
+            self._serve_mongo_stats()
         else:
             self.send_error(404)
 
@@ -7092,6 +8419,23 @@ class SpectatorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_mongo_stats(self):
+        db = _get_mongo_client()
+        match_id = self.jsonl_path.stem
+        result = {"connected": False, "turns": 0, "match_synced": False}
+        if db is not None:
+            result["connected"] = True
+            try:
+                result["turns"] = db.turns.count_documents({"match_id": match_id})
+                result["match_synced"] = db.matches.count_documents({"match_id": match_id}) > 0
+            except Exception:
+                pass
+        body = json.dumps(result).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 # ── Bracket Spectator Handler ────────────────────────────────────
@@ -7365,7 +8709,8 @@ def main():
             "tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE,
             "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE,
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
-            "bullshit": BULLSHIT_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
+            "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
+            "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
@@ -7380,10 +8725,10 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit"}.get(event_type, event_type)
+        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice"}.get(event_type, event_type)
         print(f"{label} Web Spectator")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")
