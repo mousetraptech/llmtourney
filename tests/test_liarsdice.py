@@ -681,3 +681,152 @@ class TestEdgeCases:
 
         highlights = g.get_highlight_hands()
         assert len(highlights) > 0
+
+
+# ------------------------------------------------------------------
+# Redistribution mode
+# ------------------------------------------------------------------
+
+class TestRedistribution:
+    @pytest.fixture
+    def redist_game(self):
+        g = LiarsDiceEvent(num_players=2, starting_dice=3, mode="redistribution")
+        g.reset(seed=42)
+        return g
+
+    def test_mode_stored(self, redist_game):
+        assert redist_game._mode == "redistribution"
+
+    def test_mode_in_snapshot(self, redist_game):
+        snap = redist_game.get_state_snapshot()
+        assert snap["mode"] == "redistribution"
+
+    def test_attrition_mode_in_snapshot(self):
+        g = LiarsDiceEvent(num_players=2, starting_dice=3, mode="attrition")
+        g.reset(seed=42)
+        snap = g.get_state_snapshot()
+        assert snap["mode"] == "attrition"
+
+    def test_winner_gains_die(self):
+        """In redistribution, the challenge winner gains a die."""
+        g = LiarsDiceEvent(num_players=2, starting_dice=3, mode="redistribution")
+        g.reset(seed=0)
+        g._dice["player_a"] = [2, 3, 5]
+        g._dice["player_b"] = [4, 6, 6]
+
+        # Bid 4 fives — only 1 five exists, bid is wrong, A loses
+        g.apply_action("player_a", {"action": "bid", "quantity": 4, "face": 5})
+        g.apply_action("player_b", {"action": "liar"})
+
+        snap = g.get_state_snapshot()
+        cr = snap["challenge_result"]
+        assert cr["loser"] == "player_a"
+        assert cr["winner"] == "player_b"
+        assert cr["die_gained_by"] == "player_b"
+        assert snap["dice_counts"]["player_a"] == 2  # lost 1
+        assert snap["dice_counts"]["player_b"] == 4  # gained 1
+
+    def test_total_dice_constant(self):
+        """In redistribution, total dice count stays constant (no dice destroyed)."""
+        g = LiarsDiceEvent(num_players=3, starting_dice=3, mode="redistribution")
+        g.reset(seed=42)
+        initial_total = sum(g._dice_counts[p] for p in g.player_ids)
+
+        g._dice["player_a"] = [2, 3, 5]
+        g._dice["player_b"] = [4, 6, 6]
+        g._dice["player_c"] = [1, 3, 2]
+
+        g.apply_action("player_a", {"action": "bid", "quantity": 5, "face": 6})
+        g.apply_action("player_b", {"action": "liar"})
+
+        new_total = sum(g._dice_counts[p] for p in g.player_ids)
+        assert new_total == initial_total
+
+    def test_elimination_at_zero_dice(self):
+        """Player is eliminated when reaching 0 dice in redistribution."""
+        g = LiarsDiceEvent(num_players=2, starting_dice=1, mode="redistribution")
+        g.reset(seed=42)
+        g._dice["player_a"] = [3]
+        g._dice["player_b"] = [5]
+
+        g.apply_action("player_a", {"action": "bid", "quantity": 2, "face": 3})
+        g.apply_action("player_b", {"action": "liar"})
+
+        snap = g.get_state_snapshot()
+        assert "player_a" in snap["eliminated"]
+        assert snap["dice_counts"]["player_a"] == 0
+        assert snap["dice_counts"]["player_b"] == 2  # gained the die
+        assert snap["terminal"] is True
+
+    def test_correct_bid_challenger_loses_bidder_gains(self):
+        """When bid is correct, challenger loses a die and bidder gains one."""
+        g = LiarsDiceEvent(num_players=2, starting_dice=3, mode="redistribution")
+        g.reset(seed=0)
+        g._dice["player_a"] = [3, 3, 5]
+        g._dice["player_b"] = [3, 1, 6]
+
+        # Bid 4 threes — 3 threes + 1 wild = 4, correct
+        g.apply_action("player_a", {"action": "bid", "quantity": 4, "face": 3})
+        g.apply_action("player_b", {"action": "liar"})
+
+        snap = g.get_state_snapshot()
+        cr = snap["challenge_result"]
+        assert cr["bid_was_correct"] is True
+        assert cr["loser"] == "player_b"
+        assert cr["winner"] == "player_a"
+        assert cr["die_gained_by"] == "player_a"
+        assert snap["dice_counts"]["player_a"] == 4  # gained 1
+        assert snap["dice_counts"]["player_b"] == 2  # lost 1
+
+    def test_attrition_no_die_gained(self):
+        """In attrition mode, no die is gained by the winner."""
+        g = LiarsDiceEvent(num_players=2, starting_dice=3, mode="attrition")
+        g.reset(seed=0)
+        g._dice["player_a"] = [2, 3, 5]
+        g._dice["player_b"] = [4, 6, 6]
+
+        g.apply_action("player_a", {"action": "bid", "quantity": 4, "face": 5})
+        g.apply_action("player_b", {"action": "liar"})
+
+        snap = g.get_state_snapshot()
+        cr = snap["challenge_result"]
+        assert cr["die_gained_by"] is None
+        assert snap["dice_counts"]["player_a"] == 2
+        assert snap["dice_counts"]["player_b"] == 3  # unchanged
+
+    def test_full_redistribution_game_completes(self):
+        """A full redistribution game runs to completion."""
+        g = LiarsDiceEvent(num_players=3, starting_dice=2, mode="redistribution")
+        g.reset(seed=99)
+
+        max_turns = 2000
+        turns = 0
+        while not g.is_terminal() and turns < max_turns:
+            pid = g.current_player()
+            snap = g.get_state_snapshot()
+
+            if snap["current_bid"] is None:
+                # Bid aggressively to create wrong bids
+                total = snap["total_dice"]
+                g.apply_action(pid, {"action": "bid", "quantity": max(1, total // 2), "face": 6})
+            else:
+                g.apply_action(pid, {"action": "liar"})
+            turns += 1
+
+        assert g.is_terminal()
+        assert turns < max_turns
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(ValueError, match="Invalid mode"):
+            LiarsDiceEvent(mode="freeforall")
+
+    def test_prompt_mentions_redistribution(self):
+        g = LiarsDiceEvent(num_players=2, starting_dice=3, mode="redistribution")
+        g.reset(seed=42)
+        g._dice["player_a"] = [2, 3, 5]
+        g._dice["player_b"] = [4, 6, 6]
+
+        g.apply_action("player_a", {"action": "bid", "quantity": 1, "face": 2})
+        prompt = g.get_prompt("player_b")
+        assert "YOU gain one" in prompt or "gain" in prompt.lower()
+        assert "REDISTRIBUTION" in prompt

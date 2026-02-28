@@ -268,6 +268,7 @@ class TournamentEngine:
             return LiarsDiceEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
+                mode=event_cfg.mode,
             )
         raise ValueError(f"Unknown event: {event_name!r}")
 

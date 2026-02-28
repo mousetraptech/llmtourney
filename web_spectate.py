@@ -6714,6 +6714,7 @@ body {
 
 <div id="header">
   <span id="badge" class="badge badge-live">LIVE</span>
+  <span id="mode-badge" class="badge" style="background:var(--magenta);color:#000;display:none"></span>
   <span class="title">LIAR'S DICE</span>
   <span id="round-info" class="stats">Round 1 | 20 dice in play | 0 eliminated</span>
 </div>
@@ -6807,6 +6808,7 @@ var S = {
   roundHistory: [],
   gameNumber: 1,
   gamesPerMatch: 1,
+  startingDice: 5,
   // commentary log
   commentLog: [],
   // shot clock
@@ -6863,7 +6865,7 @@ function resetState() {
   S.currentBid = null; S.bidHistory = []; S.wildsActive = true;
   S.eliminated = []; S.activePlayer = ''; S.matchScores = {};
   S.playerStats = {}; S.challengeResult = null; S.roundHistory = [];
-  S.gameNumber = 1; S.gamesPerMatch = 1; S.commentLog = [];
+  S.gameNumber = 1; S.gamesPerMatch = 1; S.startingDice = 5; S.mode = 'attrition'; S.commentLog = [];
   S.shotClock = { timeLimitMs: 0, lastTurnTime: 0, waitingOn: '', strikes: {}, strikeLimit: 0 };
   S.violations = {}; S.lastReasoning = ''; S.lastModel = '';
   document.getElementById('players').innerHTML = '';
@@ -6968,6 +6970,8 @@ function processEvent(data) {
 
   S.gameNumber = snap.game_number || S.gameNumber;
   S.gamesPerMatch = snap.games_per_match || S.gamesPerMatch;
+  if (snap.starting_dice) S.startingDice = snap.starting_dice;
+  if (snap.mode) S.mode = snap.mode;
   S.round = snap.round || S.round;
   S.turnNumber = snap.turn_number || S.turnNumber;
   S.totalDice = snap.total_dice || S.totalDice;
@@ -7074,6 +7078,10 @@ function renderHeader() {
   badge.textContent = S.finished ? 'FINAL' : 'LIVE';
   badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
 
+  var modeBadge = document.getElementById('mode-badge');
+  modeBadge.textContent = S.mode.toUpperCase();
+  modeBadge.style.display = 'inline-block';
+
   var elimCount = S.eliminated.length;
   var info = 'Round ' + S.round;
   if (S.gamesPerMatch > 1) info = 'Game ' + S.gameNumber + ' | ' + info;
@@ -7112,15 +7120,7 @@ function renderPlayers() {
 
     // Dice tracker (filled/empty dots)
     var trackerEl = document.getElementById('tracker-' + suf);
-    var startDice = 5; // will be overridden
-    // Determine starting dice from first seen count or default
-    var maxDice = 0;
-    PIDS.forEach(function(p) {
-      var c = S.diceCounts[p] || 0;
-      var lost = (S.playerStats[p] || {}).dice_lost || 0;
-      if (c + lost > maxDice) maxDice = c + lost;
-    });
-    startDice = maxDice || 5;
+    var startDice = S.startingDice;
 
     var current = S.diceCounts[pid] || 0;
     var dots = '';
@@ -7283,6 +7283,11 @@ function renderChallengeReveal() {
   } else {
     html += '<div class="reveal-result reveal-correct">Bid was WRONG &mdash; <span class="' + loserClass + '">' + loserModel + '</span> loses a die!</div>';
   }
+  if (cr.die_gained_by) {
+    var winnerModel = S.models[cr.die_gained_by] || cr.die_gained_by;
+    var winnerClass = CLASS_NAMES[cr.die_gained_by] || '';
+    html += '<div style="color:var(--magenta);margin-top:4px"><span class="' + winnerClass + '">' + winnerModel + '</span> gains a die!</div>';
+  }
   if (cr.eliminated) html += '<div style="color:var(--red);font-weight:bold;margin-top:4px">' + loserModel + ' ELIMINATED</div>';
 
   el.innerHTML = html;
@@ -7341,13 +7346,7 @@ function renderSidebar() {
     var cls = CLASS_NAMES[pid] || '';
     var count = S.diceCounts[pid] || 0;
     var isElim = S.eliminated.indexOf(pid) >= 0;
-    var maxDice = 0;
-    PIDS.forEach(function(p) {
-      var c = S.diceCounts[p] || 0;
-      var lost = (S.playerStats[p] || {}).dice_lost || 0;
-      if (c + lost > maxDice) maxDice = c + lost;
-    });
-    var startDice = maxDice || 5;
+    var startDice = S.startingDice;
     var dots = '';
     for (var i = 0; i < startDice; i++) {
       dots += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px;' +

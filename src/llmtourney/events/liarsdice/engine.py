@@ -11,6 +11,10 @@ opening bid of a round is on 1s — then wilds are off for that round.
 
 Supports 2-10 players (default 4). Starting dice per player is configurable
 (default 5).
+
+Modes:
+- attrition (default): loser loses a die, that's it.
+- redistribution: loser loses a die AND winner gains one.
 """
 
 from __future__ import annotations
@@ -46,10 +50,14 @@ class LiarsDiceEvent(Event):
         games_per_match: int = 1,
         num_players: int = 4,
         starting_dice: int = 5,
+        mode: str = "attrition",
     ) -> None:
+        if mode not in ("attrition", "redistribution"):
+            raise ValueError(f"Invalid mode '{mode}'. Must be 'attrition' or 'redistribution'.")
         self._games_per_match = games_per_match
         self._num_players = num_players
         self._starting_dice = starting_dice
+        self._mode = mode
 
         self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
         self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
@@ -193,8 +201,12 @@ class LiarsDiceEvent(Event):
             lines.append(f"  - Maximum quantity: {total_dice}")
             lines.append("")
             lines.append("To CHALLENGE: {\"action\": \"liar\", \"reasoning\": \"...\"}")
-            lines.append("If the bid is wrong (actual count < bid), the bidder loses a die.")
-            lines.append("If the bid is correct (actual count >= bid), YOU lose a die.")
+            if self._mode == "redistribution":
+                lines.append("If the bid is wrong (actual count < bid), the bidder loses a die and YOU gain one.")
+                lines.append("If the bid is correct (actual count >= bid), YOU lose a die and the bidder gains one.")
+            else:
+                lines.append("If the bid is wrong (actual count < bid), the bidder loses a die.")
+                lines.append("If the bid is correct (actual count >= bid), YOU lose a die.")
 
         lines.append("")
 
@@ -211,6 +223,9 @@ class LiarsDiceEvent(Event):
             lines.append("- Each unknown die has ~1/6 chance of matching (no wilds).")
         lines.append("- Think about whether the current bid is plausible given the total dice count.")
         lines.append("- Consider what your raise signals to other players.")
+        if self._mode == "redistribution":
+            lines.append("- REDISTRIBUTION MODE: Winning a challenge gains you a die. Challenges are high-reward, not just defensive.")
+            lines.append("- A successful challenge grows your cup AND shrinks theirs — double swing.")
         lines.append("")
 
         # Eliminated players
@@ -321,8 +336,10 @@ class LiarsDiceEvent(Event):
         total_dice = sum(self._dice_counts[p] for p in active_players)
 
         snap: dict = {
+            "mode": self._mode,
             "game_number": self._game_number,
             "games_per_match": self._games_per_match,
+            "starting_dice": self._starting_dice,
             "round": self._round_number,
             "turn_number": self._turn_number,
             "total_dice": total_dice,
@@ -564,15 +581,23 @@ class LiarsDiceEvent(Event):
 
         bid_was_correct = actual_count >= bid_quantity
 
-        # Determine loser
+        # Determine loser and winner
         if bid_was_correct:
             loser = challenger
+            winner = bidder
         else:
             loser = bidder
+            winner = challenger
 
         # Loser loses a die
         self._dice_counts[loser] -= 1
         self._player_stats[loser]["dice_lost"] += 1
+
+        # Redistribution: winner gains a die
+        die_gained_by = None
+        if self._mode == "redistribution":
+            self._dice_counts[winner] += 1
+            die_gained_by = winner
 
         # Track challenge stats
         self._player_stats[challenger]["challenges_made"] += 1
@@ -596,7 +621,9 @@ class LiarsDiceEvent(Event):
             "wilds_counted": wilds_counted,
             "bid_was_correct": bid_was_correct,
             "loser": loser,
+            "winner": winner,
             "die_lost_by": loser,
+            "die_gained_by": die_gained_by,
             "eliminated": eliminated,
         }
 

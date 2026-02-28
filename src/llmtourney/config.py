@@ -30,6 +30,7 @@ class EventConfig:
     blind_schedule: list[tuple[int, int, int]] | None = None  # [(hand, small, big), ...]
     rounds: int = 1
     games_per_match: int = 9
+    mode: str = "attrition"
 
 
 @dataclass
@@ -113,6 +114,7 @@ def load_config(path: Path) -> TournamentConfig:
             blind_schedule=blind_schedule,
             rounds=e.get("rounds", 1),
             games_per_match=e.get("games_per_match", 9),
+            mode=e.get("mode", "attrition"),
         )
 
     # Parse optional shot clock config
