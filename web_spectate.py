@@ -8148,12 +8148,58 @@ let isReplaying = false;
 let replayTimer = null;
 let playerIds = [];
 let playerLabels = {};
+let playerModels = {};
+
+function shortModel(name) {
+  if (!name) return '';
+  return name.replace(/^(openai|anthropic|google|x-ai|deepseek|meta|mistralai|amazon|perplexity)\//i, '')
+             .replace(/-instruct$/i, '');
+}
+
+function displayName(pid) {
+  return playerModels[pid] || ('Player ' + (playerLabels[pid] || pid));
+}
+
+function extractModels(data) {
+  let changed = false;
+  const pm = (data.state_snapshot && data.state_snapshot.player_models) || data.player_models || {};
+  Object.keys(pm).forEach(k => {
+    if (pm[k] && !playerModels[k]) { playerModels[k] = shortModel(pm[k]); changed = true; }
+  });
+  if (data.player_id && data.model_id && !playerModels[data.player_id]) {
+    playerModels[data.player_id] = shortModel(data.model_id); changed = true;
+  }
+  if (changed) refreshLabels();
+}
+
+function refreshLabels() {
+  // Update scorecard headers
+  document.querySelectorAll('#sc-header th[data-pid]').forEach(th => {
+    th.textContent = displayName(th.dataset.pid);
+  });
+  // Update dice row labels
+  document.querySelectorAll('.dice-row .player-label').forEach(lbl => {
+    const pid = lbl.parentElement.dataset.pid;
+    if (pid) lbl.textContent = displayName(pid);
+  });
+  // Update score bar labels
+  document.querySelectorAll('.score-bar-label').forEach(lbl => {
+    const row = lbl.closest('.score-bar-row');
+    if (!row) return;
+    const fill = row.querySelector('.score-bar-fill');
+    if (fill && fill.dataset.pid) lbl.textContent = displayName(fill.dataset.pid);
+  });
+}
 
 function initPlayers(snap) {
   if (playerIds.length > 0) return;
   playerIds = Object.keys(snap.scorecards || {});
   playerIds.forEach((pid, i) => {
     playerLabels[pid] = String.fromCharCode(65 + i);
+  });
+  const pm = snap.player_models || {};
+  Object.keys(pm).forEach(k => {
+    if (pm[k]) playerModels[k] = shortModel(pm[k]);
   });
   buildScorecard();
   buildDiceArea();
@@ -8165,7 +8211,7 @@ function buildScorecard() {
   hdr.innerHTML = '<th class="cat-col">Category</th>';
   playerIds.forEach((pid, i) => {
     const th = document.createElement('th');
-    th.textContent = playerLabels[pid];
+    th.textContent = displayName(pid);
     th.style.color = `var(--${PLAYER_COLORS[i]})`;
     th.dataset.pid = pid;
     hdr.appendChild(th);
@@ -8259,7 +8305,7 @@ function buildDiceArea() {
     row.dataset.pid = pid;
     const lbl = document.createElement('span');
     lbl.className = 'player-label';
-    lbl.textContent = playerLabels[pid];
+    lbl.textContent = displayName(pid);
     lbl.style.color = `var(--${PLAYER_COLORS[i]})`;
     row.appendChild(lbl);
     for (let d = 0; d < 5; d++) {
@@ -8279,7 +8325,7 @@ function buildScoreBars() {
     const row = document.createElement('div');
     row.className = 'score-bar-row';
     row.innerHTML = `
-      <span class="score-bar-label" style="color:var(--${PLAYER_COLORS[i]})">${playerLabels[pid]}</span>
+      <span class="score-bar-label" style="color:var(--${PLAYER_COLORS[i]})">${displayName(pid)}</span>
       <div class="score-bar-track">
         <div class="score-bar-fill" data-pid="${pid}" style="background:var(--${PLAYER_COLORS[i]});width:0%"></div>
       </div>
@@ -8303,9 +8349,9 @@ function renderState(snap) {
 
   if (activePid && !snap.terminal) {
     const pi = playerIds.indexOf(activePid);
-    const lbl = playerLabels[activePid] || '?';
+    const name = displayName(activePid);
     document.getElementById('active-info').innerHTML =
-      `<span style="color:var(--${PLAYER_COLORS[pi]})">Player ${lbl}</span> — Roll ${snap.roll_number || 1} of 3`;
+      `<span style="color:var(--${PLAYER_COLORS[pi]})">${name}</span> — Roll ${snap.roll_number || 1} of 3`;
   } else if (snap.terminal) {
     document.getElementById('active-info').textContent = 'GAME OVER';
   }
@@ -8395,7 +8441,7 @@ function renderState(snap) {
     mPanel.style.display = '';
     const mDiv = document.getElementById('match-scores');
     mDiv.innerHTML = playerIds.map((pid, i) =>
-      `<span style="color:var(--${PLAYER_COLORS[i]})">${playerLabels[pid]}: ${(ms[pid]||0).toFixed(1)}</span>`
+      `<span style="color:var(--${PLAYER_COLORS[i]})">${displayName(pid)}: ${(ms[pid]||0).toFixed(1)}</span>`
     ).join(' &nbsp; ');
   }
 
@@ -8408,12 +8454,13 @@ function renderState(snap) {
     div.className = 'commentary-entry';
     const pi = playerIds.indexOf(c.player);
     const color = PLAYER_COLORS[pi] || 'dim';
+    const cName = displayName(c.player);
     if (c.event === 'scored') {
-      div.innerHTML = `<span class="round-tag">R${c.round}</span> <span style="color:var(--${color})">${c.label}</span> scored <b>${c.points}</b> in ${CAT_LABELS[c.category] || c.category} (total: ${c.total})`;
+      div.innerHTML = `<span class="round-tag">R${c.round}</span> <span style="color:var(--${color})">${cName}</span> scored <b>${c.points}</b> in ${CAT_LABELS[c.category] || c.category} (total: ${c.total})`;
     } else if (c.event === 'yahtzee_bonus') {
-      div.innerHTML = `<span class="round-tag">R${c.round}</span> <span style="color:var(--${color})">${c.label}</span> <span style="color:var(--gold)">YAHTZEE BONUS! +100</span>`;
+      div.innerHTML = `<span class="round-tag">R${c.round}</span> <span style="color:var(--${color})">${cName}</span> <span style="color:var(--gold)">YAHTZEE BONUS! +100</span>`;
     } else if (c.event === 'game_end') {
-      div.innerHTML = `<span class="round-tag">END</span> <span style="color:var(--${color})">${c.label}</span> final: ${c.game_total} (match: ${(c.match_score||0).toFixed(1)})`;
+      div.innerHTML = `<span class="round-tag">END</span> <span style="color:var(--${color})">${cName}</span> final: ${c.game_total} (match: ${(c.match_score||0).toFixed(1)})`;
     }
     feed.appendChild(div);
   });
@@ -8426,9 +8473,9 @@ function renderReasoning(entry) {
     panel.style.display = '';
     const pi = playerIds.indexOf(entry.player_id);
     const color = PLAYER_COLORS[pi] || 'dim';
-    const lbl = playerLabels[entry.player_id] || '?';
+    const name = displayName(entry.player_id);
     document.getElementById('reasoning-text').innerHTML =
-      `<span style="color:var(--${color})">${lbl}:</span> ${text.replace(/</g,'&lt;')}`;
+      `<span style="color:var(--${color})">${name}:</span> ${text.replace(/</g,'&lt;')}`;
   } else {
     panel.style.display = 'none';
   }
@@ -8510,6 +8557,7 @@ const evtSource = new EventSource('/events');
 evtSource.onmessage = (event) => {
   try {
     const data = JSON.parse(event.data);
+    extractModels(data);
     entries.push(data);
     slider.max = entries.length - 1;
     if (isLive) goToEntry(entries.length - 1);

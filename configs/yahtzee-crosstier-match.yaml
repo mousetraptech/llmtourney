@@ -1,0 +1,48 @@
+tournament:
+  name: "yahtzee-crosstier-match"
+  seed: 42
+  format: round_robin
+  version: "0.1.0"
+
+# 4-player cross-tier Yahtzee — one from each weight class
+
+models:
+  claude-sonnet-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+  gemini-2.5-flash:
+    provider: openrouter
+    model_id: google/gemini-2.5-flash
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+  haiku-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  yahtzee:
+    weight: 1
+    games_per_match: 3
+
+shot_clock:
+  default_ms: 30000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 30.0
