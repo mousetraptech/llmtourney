@@ -40,6 +40,8 @@ from llmtourney.events.reversi.engine import ReversiEvent
 from llmtourney.events.bullshit.engine import BullshitEvent
 from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 
+_MULTIPLAYER_EVENTS = {"bullshit", "liarsdice"}
+
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
     "simple_heuristic": simple_heuristic_strategy,
@@ -89,12 +91,22 @@ class TournamentEngine:
             model_names = list(self.config.models.keys())
 
             for event_name, event_cfg in self.config.events.items():
+                multiplayer = (
+                    event_name in _MULTIPLAYER_EVENTS
+                    and len(model_names) > 2
+                )
                 for _round in range(1, event_cfg.rounds + 1):
-                    for matchup in combinations(model_names, 2):
-                        result = self._run_match(
-                            event_name, event_cfg, matchup[0], matchup[1]
+                    if multiplayer:
+                        result = self._run_multiplayer_match(
+                            event_name, event_cfg, model_names,
                         )
                         matches.append(result)
+                    else:
+                        for matchup in combinations(model_names, 2):
+                            result = self._run_match(
+                                event_name, event_cfg, matchup[0], matchup[1]
+                            )
+                            matches.append(result)
 
             standings = self._compute_standings(matches)
             return TournamentResult(
@@ -417,7 +429,10 @@ class TournamentEngine:
                 "strike_limit": referee.match_forfeit_threshold,
             }
 
-        while not event.is_terminal():
+        _match_error: Exception | None = None
+
+        try:
+          while not event.is_terminal():
             referee.new_turn()
             player_id = event.current_player()
             model_name = player_models[player_id]
@@ -762,7 +777,15 @@ class TournamentEngine:
                 **_telemetry_extras(player_id, time_limit_ms, False),
             )
 
-        # Finalize
+        except Exception as exc:
+            _match_error = exc
+            import traceback
+            print(
+                f"[ERROR] Match {match_id} crashed: {exc}\n"
+                f"{traceback.format_exc()}"
+            )
+
+        # Finalize — always runs, even after crash
         scores = event.get_scores()
         fidelity = referee.get_fidelity_report()
 
@@ -786,8 +809,10 @@ class TournamentEngine:
             "event": event_name,
             "player_models": player_models,
             "highlight_hands": event.get_highlight_hands(),
-            "ruling": match_forfeit_ruling or "completed",
+            "ruling": "engine_crash" if _match_error else (match_forfeit_ruling or "completed"),
         }
+        if _match_error:
+            match_extra["crash_error"] = str(_match_error)
         forfeit_player = referee.get_match_forfeit_player()
         if forfeit_player:
             match_extra["forfeit_details"] = {

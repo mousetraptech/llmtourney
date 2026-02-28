@@ -111,7 +111,14 @@ class LiarsDiceEvent(Event):
         self._start_new_game()
 
     def current_player(self) -> str:
-        return self._player_ids[self._turn_player_idx]
+        idx = self._turn_player_idx % len(self._player_ids)
+        pid = self._player_ids[idx]
+        # Safety: if pointing at an eliminated player, advance
+        if pid in self._eliminated_set:
+            self._turn_player_idx = idx
+            self._advance_to_active_player()
+            pid = self._player_ids[self._turn_player_idx]
+        return pid
 
     def get_prompt(self, player_id: str) -> str:
         label = self._player_labels[player_id]
@@ -564,6 +571,8 @@ class LiarsDiceEvent(Event):
         """Process a 'liar' challenge."""
         self._turn_number += 1
         bid = self._current_bid
+        if bid is None:
+            raise RuntimeError("_do_challenge called with no current bid")
         bidder = bid["bidder"]
         bid_face = bid["face"]
         bid_quantity = bid["quantity"]

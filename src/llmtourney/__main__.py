@@ -29,8 +29,10 @@ def _run_round_robin(config) -> None:
             for v in match.fidelity.values()
         )
         print(f"  {match.match_id}")
-        print(f"    {models['player_a']:20s} {scores['player_a']:>6.0f} chips")
-        print(f"    {models['player_b']:20s} {scores['player_b']:>6.0f} chips")
+        # Sort players by score descending
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        for pid, sc in ranked:
+            print(f"    {models[pid]:20s} {sc:>6.0f} pts")
         print(f"    Winner: {winner_model} (+{margin:.0f})  Violations: {violations}")
         print()
 
