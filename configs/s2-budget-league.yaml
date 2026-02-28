@@ -1,0 +1,88 @@
+tournament:
+  name: "s2-budget-league"
+  seed: 202
+  format: league
+  version: "2.0.0"
+
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  haiku-3.5:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  gemini-2.0-flash:
+    provider: openrouter
+    model_id: google/gemini-2.0-flash-001
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  nova-lite:
+    provider: openrouter
+    model_id: amazon/nova-lite-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  mistral-small:
+    provider: openrouter
+    model_id: mistralai/mistral-small-2501
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+  perplexity-sonar-small:
+    provider: openrouter
+    model_id: perplexity/sonar
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+
+events:
+  tictactoe:
+    weight: 1
+    games_per_match: 3
+  connectfour:
+    weight: 1
+    games_per_match: 3
+  checkers:
+    weight: 1
+    games_per_match: 3
+  reversi:
+    weight: 1
+    games_per_match: 3
+  scrabble:
+    weight: 1
+    games_per_match: 1
+  holdem:
+    weight: 1
+    hands_per_match: 50
+    starting_stack: 200
+    blinds: [1, 2]
+  bullshit:
+    weight: 1
+    games_per_match: 3
+    rounds: 5
+  liarsdice:
+    weight: 1
+    games_per_match: 3
+    rounds: 5
+
+shot_clock:
+  default_ms: 30000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0

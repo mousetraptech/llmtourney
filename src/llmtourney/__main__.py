@@ -47,6 +47,17 @@ def _run_round_robin(config) -> None:
     print(f"Telemetry: {result.telemetry_dir}")
 
 
+def _run_league(config) -> None:
+    """Run a round-robin league tournament."""
+    from llmtourney.league import LeagueRunner
+
+    runner = LeagueRunner(config)
+    manifest = runner.run()
+
+    print(f"Telemetry: {runner.engine.telemetry_dir}")
+    print(f"Manifest:  {runner.manifest_path}")
+
+
 def _run_bracket(config, pause_before_final: bool = False) -> None:
     """Run a single-elimination bracket tournament."""
     from llmtourney.bracket import BracketRunner
@@ -100,6 +111,8 @@ def main() -> None:
 
     if config.format == "bracket":
         _run_bracket(config, pause_before_final=args.pause_before_final)
+    elif config.format == "league":
+        _run_league(config)
     else:
         _run_round_robin(config)
 
