@@ -17,11 +17,9 @@ import random
 import string
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 
 from llmtourney.events.base import Event, ValidationResult
 from llmtourney.events.holdem.evaluator import Card, best_five, evaluate_hand
-from llmtourney.core.schemas import load_schema
 
 __all__ = ["HoldemEvent", "SidePot", "build_side_pots", "distribute_pots"]
 
@@ -168,8 +166,7 @@ class HoldemEvent(Event):
         self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
 
         # Load action schema
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
+        self._action_schema = self._load_event_schema()
 
         # State initialized by reset()
         self._rng: random.Random | None = None
@@ -371,10 +368,6 @@ class HoldemEvent(Event):
         else:
             self.apply_action(player_id, {"action": "fold"})
 
-    def is_terminal(self) -> bool:
-        """Return True if the match is over."""
-        return self._terminal
-
     def get_scores(self) -> dict[str, float]:
         """Return final chip counts as scores."""
         return {pid: float(self._stacks[pid]) for pid in self._player_ids}
@@ -407,19 +400,6 @@ class HoldemEvent(Event):
             "busted": sorted(self._busted),
             "dead_seats": sorted(self._dead_seats),
         }
-
-    @property
-    def player_ids(self) -> list[str]:
-        return list(self._player_ids)
-
-    @property
-    def action_schema(self) -> dict:
-        """Return the JSON Schema for valid actions."""
-        return self._action_schema
-
-    def force_forfeit_match(self, player_id: str) -> None:
-        """Force-end the match due to stuck-loop detection."""
-        self._terminal = True
 
     def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
         """Award all chips to remaining players on forfeit."""

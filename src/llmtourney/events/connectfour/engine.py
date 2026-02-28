@@ -7,10 +7,7 @@ positional advantage. Scoring: 1.0 per win, 0.5 per draw, 0.0 per loss.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from llmtourney.events.base import Event, ValidationResult
-from llmtourney.core.schemas import load_schema
+from llmtourney.events.base import TwoPlayerSeriesEvent, ValidationResult
 
 __all__ = ["ConnectFourEvent"]
 
@@ -18,27 +15,12 @@ ROWS = 6
 COLS = 7
 
 
-class ConnectFourEvent(Event):
-    """Multi-game Connect Four series engine.
-
-    Implements the Event ABC for use in the llmtourney tournament system.
-    """
+class ConnectFourEvent(TwoPlayerSeriesEvent):
+    """Multi-game Connect Four series engine."""
 
     def __init__(self, games_per_match: int = 9) -> None:
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
-        self._games_per_match = games_per_match
-
-        # State initialised by reset()
+        super().__init__(games_per_match)
         self._board: list[list[str]] = []
-        self._active_player: str = ""
-        self._game_number: int = 0
-        self._game_results: list[str] = []
-        self._series_scores: dict[str, float] = {}
-        self._turn_number: int = 0
-        self._game_turn: int = 0
-        self._terminal: bool = False
-        self._first_player: str = ""
         self._winner: str | None = None
 
         # Telemetry extras
@@ -52,17 +34,7 @@ class ConnectFourEvent(Event):
     # ------------------------------------------------------------------
 
     def reset(self, seed: int) -> None:
-        self._board = [[""] * COLS for _ in range(ROWS)]
-        self._active_player = "player_a"
-        self._game_number = 1
-        self._game_results = []
-        self._series_scores = {"player_a": 0.0, "player_b": 0.0}
-        self._turn_number = 0
-        self._game_turn = 0
-        self._terminal = False
-        self._first_player = "player_a"
-        self._winner = None
-        self._clear_telemetry()
+        super().reset(seed)
 
     def current_player(self) -> str:
         return self._active_player
@@ -187,23 +159,6 @@ class ConnectFourEvent(Event):
                     self._active_player = self._opponent(player_id)
                 return
 
-    def force_forfeit_match(self, player_id: str) -> None:
-        """Force-end the match due to stuck-loop detection."""
-        self._terminal = True
-
-    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        """Award remaining games to opponent."""
-        opponent = self._opponent(forfeiting_player_id)
-        remaining = self._games_per_match - len(self._game_results)
-        self._series_scores[opponent] += float(remaining)
-        self._terminal = True
-
-    def is_terminal(self) -> bool:
-        return self._terminal
-
-    def get_scores(self) -> dict[str, float]:
-        return dict(self._series_scores)
-
     def get_state_snapshot(self) -> dict:
         return {
             "board": [row[:] for row in self._board],
@@ -222,25 +177,21 @@ class ConnectFourEvent(Event):
             "violation_type": self._last_violation_type,
         }
 
-    @property
-    def player_ids(self) -> list[str]:
-        return ["player_a", "player_b"]
-
-    @property
-    def action_schema(self) -> dict:
-        return self._action_schema
-
     def get_highlight_hands(self) -> list[int]:
-        """Return game numbers where a player won."""
         highlights = []
         for i, result in enumerate(self._game_results):
             if result in ("x_wins", "o_wins"):
-                highlights.append(i + 1)  # 1-indexed
+                highlights.append(i + 1)
         return highlights
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _init_game_state(self) -> None:
+        self._board = [[""] * COLS for _ in range(ROWS)]
+        self._winner = None
+        self._clear_telemetry()
 
     def _mark_for(self, player_id: str) -> str:
         """Return 'X' or 'O' based on who goes first this game."""
@@ -315,28 +266,8 @@ class ConnectFourEvent(Event):
             self._series_scores["player_a"] += 0.5
             self._series_scores["player_b"] += 0.5
 
-    def _advance_or_end(self) -> None:
-        """Start next game or end the match."""
-        self._game_number += 1
-        if self._game_number > self._games_per_match:
-            self._terminal = True
-            return
-
-        # Reset board for next game
-        self._board = [[""] * COLS for _ in range(ROWS)]
-        self._game_turn = 0
-        self._winner = None
-        # Alternate first player
-        self._first_player = self._opponent(self._first_player)
-        self._active_player = self._first_player
-        self._clear_telemetry()
-
     def _clear_telemetry(self) -> None:
         self._last_column = None
         self._last_row = None
         self._last_was_valid = True
         self._last_violation_type = None
-
-    @staticmethod
-    def _opponent(player_id: str) -> str:
-        return "player_b" if player_id == "player_a" else "player_a"

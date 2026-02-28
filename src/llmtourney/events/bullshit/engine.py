@@ -10,13 +10,9 @@ Supports 3-10 players (default 4). Uses 1 deck for <=6 players, 2 for 7+.
 
 from __future__ import annotations
 
-import random
-import string
 from enum import Enum
-from pathlib import Path
 
-from llmtourney.events.base import Event, ValidationResult
-from llmtourney.core.schemas import load_schema
+from llmtourney.events.base import MultiplayerSeriesEvent, ValidationResult
 
 __all__ = ["BullshitEvent"]
 
@@ -43,7 +39,7 @@ class Phase(Enum):
     CHALLENGE = "challenge"
 
 
-class BullshitEvent(Event):
+class BullshitEvent(MultiplayerSeriesEvent):
     """N-player Bullshit card game engine.
 
     Parameters
@@ -55,44 +51,28 @@ class BullshitEvent(Event):
     """
 
     def __init__(self, games_per_match: int = 1, num_players: int = 4) -> None:
-        self._games_per_match = games_per_match
-        self._num_players = num_players
-
-        # Generate player IDs and labels dynamically
-        self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
-        self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
-
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
-
-        self._rng: random.Random | None = None
-        self._game_number: int = 0
-        self._terminal: bool = False
+        super().__init__(games_per_match, num_players)
 
         # Per-game state
         self._hands: dict[str, list[str]] = {}
         self._discard_pile: list[str] = []
-        self._target_rank_idx: int = 0  # index into RANKS
-        self._turn_player_idx: int = 0  # index into self._player_ids
+        self._target_rank_idx: int = 0
+        self._turn_player_idx: int = 0
         self._phase: Phase = Phase.PLAY
-        self._challenge_idx: int = 0  # which challenger is up
-        self._challengers: list[str] = []  # ordered list of potential challengers
+        self._challenge_idx: int = 0
+        self._challengers: list[str] = []
 
         # Last play info (for challenge resolution)
         self._last_play_player: str = ""
-        self._last_play_cards: list[str] = []  # actual cards played face-down
+        self._last_play_cards: list[str] = []
         self._last_play_count: int = 0
         self._last_play_rank: str = ""
 
         # Tracking
         self._turn_number: int = 0
-        self._history: list[dict] = []  # public declaration history
-        self._finish_order: list[str] = []  # players in order they emptied hand
-        self._eliminated: set[str] = set()  # players who have emptied hand
-        self._highlight_turns: list[int] = []
-
-        # Scores across games
-        self._match_scores: dict[str, float] = {p: 0.0 for p in self._player_ids}
+        self._history: list[dict] = []
+        self._finish_order: list[str] = []
+        self._eliminated: set[str] = set()
 
         # Per-player deception stats
         self._player_stats: dict[str, dict] = {
@@ -105,18 +85,6 @@ class BullshitEvent(Event):
             }
             for p in self._player_ids
         }
-
-    # ------------------------------------------------------------------
-    # Event ABC
-    # ------------------------------------------------------------------
-
-    def reset(self, seed: int) -> None:
-        self._rng = random.Random(seed)
-        self._game_number = 0
-        self._terminal = False
-        self._match_scores = {p: 0.0 for p in self._player_ids}
-        self._highlight_turns = []
-        self._start_new_game()
 
     def current_player(self) -> str:
         if self._phase == Phase.PLAY:
@@ -275,12 +243,6 @@ class BullshitEvent(Event):
         else:
             self.apply_action(player_id, {"action": "pass"})
 
-    def is_terminal(self) -> bool:
-        return self._terminal
-
-    def get_scores(self) -> dict[str, float]:
-        return dict(self._match_scores)
-
     def get_state_snapshot(self) -> dict:
         return {
             "game_number": self._game_number,
@@ -306,31 +268,6 @@ class BullshitEvent(Event):
             "match_scores": dict(self._match_scores),
             "player_stats": {p: dict(self._player_stats[p]) for p in self._player_ids},
         }
-
-    @property
-    def player_ids(self) -> list[str]:
-        return list(self._player_ids)
-
-    @property
-    def action_schema(self) -> dict:
-        return self._action_schema
-
-    def force_forfeit_match(self, player_id: str) -> None:
-        self._terminal = True
-
-    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        # Award points for all remaining unplayed games.
-        # The forfeiting player gets 0 for each; others get max (N-1 points).
-        # Current game counts as unplayed (it was interrupted).
-        remaining_games = self._games_per_match - self._game_number + 1
-        max_points = float(self._num_players - 1)
-        for pid in self._player_ids:
-            if pid != forfeiting_player_id:
-                self._match_scores[pid] += max_points * remaining_games
-        self._terminal = True
-
-    def get_highlight_hands(self) -> list[int]:
-        return list(self._highlight_turns)
 
     # ------------------------------------------------------------------
     # Game lifecycle

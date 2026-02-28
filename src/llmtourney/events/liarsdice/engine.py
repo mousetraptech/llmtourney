@@ -20,19 +20,15 @@ Modes:
 from __future__ import annotations
 
 import math
-import random
-import string
-from pathlib import Path
 
-from llmtourney.events.base import Event, ValidationResult
-from llmtourney.core.schemas import load_schema
+from llmtourney.events.base import MultiplayerSeriesEvent, ValidationResult
 
 __all__ = ["LiarsDiceEvent"]
 
 FACE_NAMES = {1: "ones", 2: "twos", 3: "threes", 4: "fours", 5: "fives", 6: "sixes"}
 
 
-class LiarsDiceEvent(Event):
+class LiarsDiceEvent(MultiplayerSeriesEvent):
     """N-player Liar's Dice engine.
 
     Parameters
@@ -54,43 +50,30 @@ class LiarsDiceEvent(Event):
     ) -> None:
         if mode not in ("attrition", "redistribution"):
             raise ValueError(f"Invalid mode '{mode}'. Must be 'attrition' or 'redistribution'.")
-        self._games_per_match = games_per_match
-        self._num_players = num_players
+        super().__init__(games_per_match, num_players)
         self._starting_dice = starting_dice
         self._mode = mode
 
-        self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
-        self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
-
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
-
-        self._rng: random.Random | None = None
-        self._game_number: int = 0
-        self._terminal: bool = False
-
         # Per-game state
-        self._dice: dict[str, list[int]] = {}  # player -> list of dice values
-        self._dice_counts: dict[str, int] = {}  # player -> number of dice remaining
+        self._dice: dict[str, list[int]] = {}
+        self._dice_counts: dict[str, int] = {}
         self._round_number: int = 0
         self._turn_number: int = 0
-        self._current_bid: dict | None = None  # {"quantity": int, "face": int, "bidder": str}
-        self._bid_history: list[dict] = []  # bids this round
+        self._current_bid: dict | None = None
+        self._bid_history: list[dict] = []
         self._turn_player_idx: int = 0
         self._wilds_active: bool = True
-        self._eliminated: list[str] = []  # in elimination order
+        self._eliminated: list[str] = []
         self._eliminated_set: set[str] = set()
 
         # Tracking
-        self._highlight_turns: list[int] = []
-        self._match_scores: dict[str, float] = {p: 0.0 for p in self._player_ids}
-        self._round_history: list[dict] = []  # completed rounds for commentary
+        self._round_history: list[dict] = []
 
         # Per-player bluff stats
         self._player_stats: dict[str, dict] = {
             p: {
                 "total_bids": 0,
-                "bluff_bids": 0,  # bids where actual count < bid quantity
+                "bluff_bids": 0,
                 "challenges_made": 0,
                 "challenges_won": 0,
                 "dice_lost": 0,
@@ -98,17 +81,8 @@ class LiarsDiceEvent(Event):
             for p in self._player_ids
         }
 
-    # ------------------------------------------------------------------
-    # Event ABC
-    # ------------------------------------------------------------------
-
-    def reset(self, seed: int) -> None:
-        self._rng = random.Random(seed)
-        self._game_number = 0
-        self._terminal = False
-        self._match_scores = {p: 0.0 for p in self._player_ids}
-        self._highlight_turns = []
-        self._start_new_game()
+    def _forfeit_points_per_game(self) -> float:
+        return float(self._num_players)
 
     def current_player(self) -> str:
         idx = self._turn_player_idx % len(self._player_ids)
@@ -336,12 +310,6 @@ class LiarsDiceEvent(Event):
                 # Fallback: just challenge
                 self.apply_action(player_id, {"action": "liar"})
 
-    def is_terminal(self) -> bool:
-        return self._terminal
-
-    def get_scores(self) -> dict[str, float]:
-        return dict(self._match_scores)
-
     def get_state_snapshot(self) -> dict:
         active_players = self._active_players()
         total_dice = sum(self._dice_counts[p] for p in active_players)
@@ -372,28 +340,6 @@ class LiarsDiceEvent(Event):
             snap["challenge_result"] = dict(self._last_challenge_result)
 
         return snap
-
-    @property
-    def player_ids(self) -> list[str]:
-        return list(self._player_ids)
-
-    @property
-    def action_schema(self) -> dict:
-        return self._action_schema
-
-    def force_forfeit_match(self, player_id: str) -> None:
-        self._terminal = True
-
-    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        remaining_games = self._games_per_match - self._game_number + 1
-        max_points = float(self._num_players)
-        for pid in self._player_ids:
-            if pid != forfeiting_player_id:
-                self._match_scores[pid] += max_points * remaining_games
-        self._terminal = True
-
-    def get_highlight_hands(self) -> list[int]:
-        return list(self._highlight_turns)
 
     def eliminate_player(self, player_id: str) -> None:
         """Called by tournament engine for stuck-loop elimination."""

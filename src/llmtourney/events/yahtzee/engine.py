@@ -19,13 +19,9 @@ Ties share the average of their positions.
 
 from __future__ import annotations
 
-import random
-import string
 from collections import Counter
-from pathlib import Path
 
-from llmtourney.events.base import Event, ValidationResult
-from llmtourney.core.schemas import load_schema
+from llmtourney.events.base import MultiplayerSeriesEvent, ValidationResult
 
 __all__ = ["YahtzeeEvent"]
 
@@ -78,7 +74,7 @@ def score_category(dice: list[int], category: str) -> int:
     return 0
 
 
-class YahtzeeEvent(Event):
+class YahtzeeEvent(MultiplayerSeriesEvent):
     """N-player concurrent Yahtzee engine (display name: Roller Derby).
 
     Parameters
@@ -98,18 +94,7 @@ class YahtzeeEvent(Event):
         games_per_match: int = 1,
         num_players: int = 3,
     ) -> None:
-        self._games_per_match = games_per_match
-        self._num_players = num_players
-
-        self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
-        self._player_labels = {pid: string.ascii_uppercase[i] for i, pid in enumerate(self._player_ids)}
-
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
-
-        self._rng: random.Random | None = None
-        self._game_number: int = 0
-        self._terminal: bool = False
+        super().__init__(games_per_match, num_players)
 
         # Per-game state
         self._round_number: int = 0
@@ -122,23 +107,12 @@ class YahtzeeEvent(Event):
         self._yahtzee_bonuses: dict[str, int] = {}  # count of bonus yahtzees
         self._round_decisions: dict[str, dict] = {}  # what each player scored this round (revealed at round end)
 
-        # Tracking
-        self._highlight_turns: list[int] = []
-        self._match_scores: dict[str, float] = {p: 0.0 for p in self._player_ids}
+        # Yahtzee-specific tracking
         self._commentary: list[dict] = []  # recent events for spectator
 
     # ------------------------------------------------------------------
     # Event ABC
     # ------------------------------------------------------------------
-
-    def reset(self, seed: int) -> None:
-        self._rng = random.Random(seed)
-        self._game_number = 0
-        self._terminal = False
-        self._match_scores = {p: 0.0 for p in self._player_ids}
-        self._highlight_turns = []
-        self._commentary = []
-        self._start_new_game()
 
     def current_player(self) -> str:
         return self._player_ids[self._current_player_idx]
@@ -291,12 +265,6 @@ class YahtzeeEvent(Event):
         best_cat = max(available, key=lambda c: score_category(dice, c))
         self._do_score(player_id, best_cat)
 
-    def is_terminal(self) -> bool:
-        return self._terminal
-
-    def get_scores(self) -> dict[str, float]:
-        return dict(self._match_scores)
-
     def get_state_snapshot(self) -> dict:
         scorecards_out = {}
         for pid in self._player_ids:
@@ -331,28 +299,6 @@ class YahtzeeEvent(Event):
                 for p in self._player_ids
             },
         }
-
-    @property
-    def player_ids(self) -> list[str]:
-        return list(self._player_ids)
-
-    @property
-    def action_schema(self) -> dict:
-        return self._action_schema
-
-    def force_forfeit_match(self, player_id: str) -> None:
-        self._terminal = True
-
-    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        remaining_games = self._games_per_match - self._game_number + 1
-        max_points = float(self._num_players - 1)
-        for pid in self._player_ids:
-            if pid != forfeiting_player_id:
-                self._match_scores[pid] += max_points * remaining_games
-        self._terminal = True
-
-    def get_highlight_hands(self) -> list[int]:
-        return list(self._highlight_turns)
 
     def eliminate_player(self, player_id: str) -> None:
         """Auto-fill remaining categories with 0 and advance past this player."""

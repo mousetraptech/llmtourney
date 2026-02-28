@@ -10,10 +10,7 @@ Draw rules:
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from llmtourney.events.base import Event, ValidationResult
-from llmtourney.core.schemas import load_schema
+from llmtourney.events.base import TwoPlayerSeriesEvent, ValidationResult
 
 from .board import (
     Move,
@@ -36,30 +33,16 @@ def _board_key(board: list[list[str]], color: str) -> str:
     return color + "|" + "/".join("".join(row) for row in board)
 
 
-class CheckersEvent(Event):
+class CheckersEvent(TwoPlayerSeriesEvent):
     """Multi-game checkers series engine."""
 
     def __init__(self, games_per_match: int = 5) -> None:
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
-        self._games_per_match = games_per_match
-
-        # State (initialised by reset())
+        super().__init__(games_per_match)
         self._board: list[list[str]] = []
-        self._current_color: str = ""  # "black" or "red" (internal)
-        self._active_player: str = ""  # "player_a" or "player_b"
-        self._game_number: int = 0
-        self._game_results: list[str] = []
-        self._series_scores: dict[str, float] = {}
-        self._turn_number: int = 0
-        self._game_turn: int = 0
-        self._terminal: bool = False
-        self._first_player: str = ""  # who plays black game 1
+        self._current_color: str = ""
         self._moves_without_capture: int = 0
-        self._position_history: dict[str, int] = {}  # board_key -> count
-
-        # Color assignments (swap each game)
-        self._color_map: dict[str, str] = {}  # player_id -> "black"|"red"
+        self._position_history: dict[str, int] = {}
+        self._color_map: dict[str, str] = {}
 
         # Telemetry extras
         self._last_move: dict | None = None
@@ -71,21 +54,7 @@ class CheckersEvent(Event):
     # ------------------------------------------------------------------
 
     def reset(self, seed: int) -> None:
-        self._board = create_initial_board()
-        self._active_player = "player_a"
-        self._current_color = "black"
-        self._game_number = 1
-        self._game_results = []
-        self._series_scores = {"player_a": 0.0, "player_b": 0.0}
-        self._turn_number = 0
-        self._game_turn = 0
-        self._terminal = False
-        self._first_player = "player_a"  # player_a is black first
-        self._moves_without_capture = 0
-        self._position_history = {}
-        self._color_map = {"player_a": "black", "player_b": "red"}
-        self._record_position()
-        self._clear_telemetry()
+        super().reset(seed)
 
     def current_player(self) -> str:
         return self._active_player
@@ -267,22 +236,6 @@ class CheckersEvent(Event):
         self._record_position(next_to_move=opponent_color)
         self._check_game_end(player_id)
 
-    def force_forfeit_match(self, player_id: str) -> None:
-        self._terminal = True
-
-    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        """Award remaining games to opponent."""
-        opponent = self._opponent(forfeiting_player_id)
-        remaining = self._games_per_match - len(self._game_results)
-        self._series_scores[opponent] += float(remaining)
-        self._terminal = True
-
-    def is_terminal(self) -> bool:
-        return self._terminal
-
-    def get_scores(self) -> dict[str, float]:
-        return dict(self._series_scores)
-
     def get_state_snapshot(self) -> dict:
         pieces = count_pieces(self._board)
         return {
@@ -304,16 +257,7 @@ class CheckersEvent(Event):
             "violation_type": self._last_violation_type,
         }
 
-    @property
-    def player_ids(self) -> list[str]:
-        return ["player_a", "player_b"]
-
-    @property
-    def action_schema(self) -> dict:
-        return self._action_schema
-
     def get_highlight_hands(self) -> list[int]:
-        """Return game numbers where a player won (not draws)."""
         highlights = []
         for i, result in enumerate(self._game_results):
             if result in ("black_wins", "red_wins"):
@@ -323,6 +267,18 @@ class CheckersEvent(Event):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _init_game_state(self) -> None:
+        self._board = create_initial_board()
+        self._current_color = "black"
+        self._moves_without_capture = 0
+        self._position_history = {}
+        self._color_map = {
+            self._first_player: "black",
+            self._opponent(self._first_player): "red",
+        }
+        self._record_position()
+        self._clear_telemetry()
 
     def _check_game_end(self, last_player_id: str) -> None:
         """Check for game over after a move, advance series if needed."""
@@ -366,30 +322,6 @@ class CheckersEvent(Event):
             red_player = self._player_for_color("red")
             self._series_scores[red_player] += 1.0
 
-    def _advance_or_end(self) -> None:
-        """Start next game or end the match."""
-        self._game_number += 1
-        if self._game_number > self._games_per_match:
-            self._terminal = True
-            return
-
-        # Reset for next game
-        self._board = create_initial_board()
-        self._game_turn = 0
-        self._moves_without_capture = 0
-        self._position_history = {}
-
-        # Alternate colors
-        self._first_player = self._opponent(self._first_player)
-        self._color_map = {
-            self._first_player: "black",
-            self._opponent(self._first_player): "red",
-        }
-        self._active_player = self._first_player
-        self._current_color = "black"
-        self._record_position()
-        self._clear_telemetry()
-
     def _player_for_color(self, color: str) -> str:
         """Return the player_id assigned to the given color."""
         for pid, c in self._color_map.items():
@@ -423,6 +355,3 @@ class CheckersEvent(Event):
             return f"{fr_str}->{to_str}(captures:{caps})"
         return f"{fr_str}->{to_str}"
 
-    @staticmethod
-    def _opponent(player_id: str) -> str:
-        return "player_b" if player_id == "player_a" else "player_a"

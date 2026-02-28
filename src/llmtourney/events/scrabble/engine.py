@@ -12,7 +12,6 @@ Two-player Scrabble with:
 from __future__ import annotations
 
 import random
-from pathlib import Path
 
 from llmtourney.events.base import Event, ValidationResult
 from llmtourney.events.scrabble.board import (
@@ -24,7 +23,6 @@ from llmtourney.events.scrabble.board import (
     tile_value,
 )
 from llmtourney.events.scrabble.dictionary import ScrabbleDictionary
-from llmtourney.core.schemas import load_schema
 
 __all__ = ["ScrabbleEvent"]
 
@@ -41,8 +39,8 @@ class ScrabbleEvent(Event):
     """
 
     def __init__(self) -> None:
-        schema_path = Path(__file__).parent / "schema.json"
-        self._action_schema = load_schema(schema_path)
+        self._player_ids = ["player_a", "player_b"]
+        self._action_schema = self._load_event_schema()
         self._dictionary = ScrabbleDictionary()
 
         # State initialised by reset()
@@ -194,17 +192,6 @@ class ScrabbleEvent(Event):
         if not self._terminal:
             self._active_player = self._opponent(player_id)
 
-    def force_forfeit_match(self, player_id: str) -> None:
-        """Force-end the match due to stuck-loop detection."""
-        self._terminal = True
-
-    def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        """Award remaining game to opponent. Scrabble is single-game."""
-        self.force_forfeit_match(forfeiting_player_id)
-
-    def is_terminal(self) -> bool:
-        return self._terminal
-
     def get_scores(self) -> dict[str, float]:
         """Return final scores with end-of-game rack adjustments."""
         scores = dict(self._scores)
@@ -250,14 +237,6 @@ class ScrabbleEvent(Event):
             "rack_after": list(self._last_rack_after),
             "bingo": self._last_bingo,
         }
-
-    @property
-    def player_ids(self) -> list[str]:
-        return ["player_a", "player_b"]
-
-    @property
-    def action_schema(self) -> dict:
-        return self._action_schema
 
     def get_highlight_hands(self) -> list[int]:
         return list(self._highlight_turns)
