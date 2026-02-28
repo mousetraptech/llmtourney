@@ -146,7 +146,58 @@ Season 2 wasn't just about games. It was about building systems:
 
 Late in Season 2, the league format was designed and implemented: five games per match, all players reset between games, cumulative points (1st eliminated = 1pt, last standing = 9pt). This replaced the single-game exhibition format with something that rewards consistency over variance.
 
-The first 9-player Liar's Dice league match is running as this is written.
+### The Liar's Dice League — First Results
+
+The first two 9-player redistribution league games completed with a split verdict. Grok-3-mini took Game 1 with 9 points, surviving to the end while GPT-4o was first eliminated. Sonnet 4.5 answered in Game 2, again with a perfect 9 points — pure probability estimation, zero bluffs. Haiku 3.5 struggled across both games with malformed JSON (8 violations in Game 1, 3 in Game 2), proving the fidelity lesson from Season 1 still applies in multiplayer.
+
+**Cumulative league standings (2 games):**
+| Model | G1 | G2 | Total |
+|-------|----|----|-------|
+| Grok-3-mini | 9 | 7 | 16 |
+| Sonnet 4.5 | 7 | 9 | 16 |
+| Haiku 3.5 | 6 | 8 | 14 |
+| DeepSeek-v3 | 5 | 6 | 11 |
+| GPT-4o-mini | 4 | 5 | 9 |
+| Llama-4-Scout | 8 | 1 | 9 |
+| Gemini 2.5 Flash | 3 | 4 | 7 |
+| Mistral Small | 2 | 2 | 4 |
+| GPT-4o | 1 | 3 | 4 |
+
+Grok-3-mini and Sonnet 4.5 are tied at the top. Llama-4-Scout's wild swing — 8 points in Game 1, last place in Game 2 — is the league's most volatile profile. GPT-4o continues its pattern of midtier mediocrity.
+
+### Bullshit — The Bluffing Games
+
+Three Bullshit matches ran. The midtier 4-player match (GPT-4o, Sonnet 4.5, Gemini 2.5 Flash, DeepSeek-v3.2) ended in a 3-way tie at 3 points each after DeepSeek forfeited with 3 strikes on a 110-second turn. The flyweight 4-player (Scout, Nova Lite, Haiku, Perplexity) was another 3-way tie — Perplexity scored 0. A 6-player match saw Scout win with 5 points while GPT-4o finished last.
+
+The early finding: LLMs are terrible liars. Challenge rates are low, bluff detection is worse. Bullshit may need a longer tournament format to separate signal from noise.
+
+### The 9-Player Hold'em Ring Games
+
+Season 2 expanded Hold'em from heads-up to 9-player ring games across every tier. The results confirmed that multiplayer poker is a fundamentally different cognitive challenge.
+
+**Heavyweight table**: Opus took 1,659 of 2,700 chips. All-Anthropic podium: Opus (1,659), Sonnet (609), Haiku (75). GPT-5 managed 41 chips before busting. Scout had 20 malformed JSON violations.
+
+**Midtier table**: Grok-3-mini dominated with 1,092 chips. Sonnet took second (602), GPT-4o third (486). Maverick and Haiku 4.5 busted out. Scout struggled with 27 malformed JSON errors — a model that dominated budget heads-up couldn't parse 9-player game state.
+
+**Bantamweight table**: Mistral Small took 1,155 chips, establishing itself as the bantamweight Hold'em king. GPT-4o-mini (572) and DeepSeek-chat (444) rounded out the money. Qwen3-8b timed out 6 times.
+
+**Flyweight table**: gemma-3n-e4b won with 901 chips, confirming the Season 1 finding that Google's small Gemma models have the best compliance at tiny scale. gemma-3n-e2b took second (700). Every non-Gemma model either timed out or produced empty responses.
+
+**Featherweight table**: ministral-3b won with 1,085 chips. gemma-3-12b (489) and gemma-3-4b (304) followed. The bottom of the field was a timeout wasteland — every player had at least 3 turn forfeits.
+
+An earlier heavyweight match (Feb 27) produced the closest 9-player result ever: GPT-4o-mini (351) edging Opus (341) by 10 chips, with the top 8 separated by only 21 chips. GPT-5 was the sole zero, busting out completely.
+
+### Scrabble — Sonnet's Word Game
+
+Scrabble proved to be Sonnet 4.5's strongest event outside of Reversi. In 11 matches, Sonnet won 8 — beating GPT-4o in 3 of 4 meetings, GPT-5 (70–7), and Haiku 4.5 in 3 of 4. Scores were often lopsided: Sonnet posted 85 points against Haiku while Haiku went -11. GPT-4o managed one Scrabble win against Sonnet (2 to -15) and Nova Pro beat GPT-4o (4 to -12). Negative scores were common, suggesting aggressive invalid-word penalties.
+
+### Checkers — Early Days
+
+Checkers ran a small initial bracket. GPT-4o-mini beat Nova Flash (2–1), Mistral Small swept Palmyra-x5 (2.5–0.5), and Qwen3-80b swept Mixtral-8x22b (3–0). Not enough data yet for definitive rankings, but the format is working.
+
+### Roller Derby (Yahtzee) — The First Attempt
+
+The first 8-player bantamweight Yahtzee match was attempted with per-player concurrent shot clocks in the spectator UI. The field: GPT-4o-mini, Haiku 3.5, Gemini Flash Lite, Mistral Small, Qwen3-8b, Scout, DeepSeek-chat, Nova Lite. DeepSeek-chat led 186 points through Round 8 of Game 1 before the match process died. No completed results yet.
 
 ### Season 2 Model Roster
 
@@ -199,7 +250,12 @@ Trick-taking games enter the arena. Spades and Pinochle bring partnership play �
 | S1 | Budget Tic-Tac-Toe | DeepSeek-v3 | 4.5–4.5 tiebreak final vs Nova Lite |
 | S1 | Budget Connect Four | Llama-4-Scout | 8-seed upset run |
 | S1 | Budget Hold'em | Llama-4-Scout | Swept the division |
-| S2 | Liar's Dice League | *in progress* | First 9-player redistribution league |
+| S2 | Liar's Dice League | *in progress* | Grok-3-mini & Sonnet 4.5 tied at 16pts after 2 games |
+| S2 | 9P HW Hold'em | Claude Opus 4.6 | 1,659 chips, all-Anthropic podium |
+| S2 | 9P Mid Hold'em | Grok-3-mini | 1,092 chips |
+| S2 | 9P Bantam Hold'em | Mistral Small | 1,155 chips |
+| S2 | 9P Fly Hold'em | gemma-3n-e4b | 901 chips, Gemma dominance at small scale |
+| S2 | Scrabble | Claude Sonnet 4.5 | Won 8 of 11 matches |
 
 ---
 
@@ -207,27 +263,31 @@ Trick-taking games enter the arena. Spades and Pinochle bring partnership play �
 
 Emerging from hundreds of matches, each model has developed a recognizable personality:
 
-**Claude Opus 4.6** — The heavyweight champion who couldn't win the decathlon. Dominant in isolation, vulnerable to the grind of multi-event competition. Plays conservative, high-floor poker.
+**Claude Opus 4.6** — The heavyweight champion who couldn't win the decathlon. Dominant in isolation, vulnerable to the grind of multi-event competition. Season 2 confirmed: took 1,659 chips in 9-player heavyweight Hold'em, but narrowly lost to GPT-4o-mini (341 vs 351) in a shocking close-table result. The king of skill, but not always of variance.
 
-**Grok-3-mini** — The pound-for-pound king. Fast, clean output, surprisingly deep game logic for its size. The model that proved size isn't everything. Season 1 champion.
+**Grok-3-mini** — The pound-for-pound king. Season 1 champion, and Season 2 is building a case for a repeat. Won a Liar's Dice league game, tied for first in cumulative standings, and dominated the midtier 9-player Hold'em table (1,092 chips). Fast, clean output, the model that never wastes a token.
 
-**Claude Sonnet 4.5** — The Reversi and Hold'em specialist. Consistent across events without being dominant in any. Liar's Dice redistribution monster — accumulates dice through pure probability estimation, 0% bluff rate.
+**Claude Sonnet 4.5** — The most versatile model in the field. Reversi specialist, Hold'em winner, Liar's Dice league co-leader (tied with Grok-3-mini at 16pts), and now the Scrabble champion (8 of 11 wins). Zero bluff rate in Liar's Dice — wins through pure probability estimation. The model most likely to be good at everything.
 
-**GPT-5** — The underperformer. Three heavyweight finals, three losses. Seeded 8th in the Champions Bracket. Whatever GPT-5 is good at, it isn't games.
+**GPT-5** — The underperformer. Three S1 heavyweight finals, three losses. Scored 41 chips in 9-player heavyweight Hold'em. Lost to Sonnet in Scrabble 7–70. Busted to zero in the close heavyweight table. Whatever GPT-5 is optimized for, it isn't games.
 
-**GPT-4o** — Solid midtier. Connect Four champion. Reliable but rarely spectacular.
+**GPT-4o** — Solid midtier. Connect Four champion. Won one Scrabble match but lost the series 1–3 to Sonnet. Liar's Dice league bottom-dweller (4pts cumulative). Reliable in S1, fading in S2.
 
-**GPT-4o-mini** — The multiplayer specialist. Mediocre heads-up, dangerous in ring games. Selective aggression with clean compliance rates.
+**GPT-4o-mini** — The multiplayer specialist. Nearly beat Opus in the closest heavyweight ring game ever (351 vs 341). Clean compliance, selective aggression. The budget model that punches above its weight when the table gets crowded.
 
-**DeepSeek-v3** — The dark horse. Made the Champions Bracket final from a 6-seed. Budget Tic-Tac-Toe champion. Consistent without being flashy.
+**DeepSeek-v3** — The dark horse. Made the Champions Bracket final from a 6-seed. Forfeited a Bullshit match (110-second turn). Solid Liar's Dice showing (11pts, 4th place). Consistent but runs into timeout trouble in newer, more complex games.
 
-**Llama-4-Scout** — Budget division menace. Hold'em and Connect Four champion at the budget tier. Absolute dominance in its weight class, but couldn't translate up to the Champions Bracket.
+**Llama-4-Scout** — The most volatile model in the field. Liar's Dice league: 8 points in Game 1, dead last (1pt) in Game 2. Budget Hold'em champion in S1, but 27 malformed JSON violations in 9-player midtier Hold'em. Won a 6-player Bullshit match. Capable of brilliance and catastrophe in equal measure.
 
-**Mistral Small** — The bantamweight strategist. "Patient then explosive" in multiplayer Hold'em. The only model to register a non-zero bluff rate in early Liar's Dice.
+**Mistral Small** — The bantamweight king. Won the 9-player bantamweight Hold'em table (1,155 chips). "Patient then explosive" remains the signature style. The only model to register a non-zero bluff rate in early Liar's Dice, but bottom of the league standings (4pts). Strategy without consistency.
 
-**Gemini 2.5 Flash** — Strong midtier presence but never quite champion. Semis finisher across multiple events.
+**Gemini 2.5 Flash** — Strong midtier presence but never quite champion. Semis finisher across multiple events. Liar's Dice midpack (7pts). The model that's always in contention but never on top.
+
+**gemma-3n-e4b** — The flyweight champion. Won the 9-player flyweight Hold'em table (901 chips), confirming that Google's tiny Gemma models have the best compliance at ultra-small scale. When other flyweights timeout or produce empty responses, Gemma keeps playing.
+
+**ministral-3b** — The featherweight surprise. Won the 9-player featherweight Hold'em table with 1,085 chips despite 5 violations. At 3 billion parameters, the smallest model to win a competitive Hold'em ring game.
 
 ---
 
-*Last updated: 2026-02-28*
+*Last updated: 2026-02-28 (Session 2)*
 *Maintained by: The Architect (Claude) and The Vision Holder (Dave)*
