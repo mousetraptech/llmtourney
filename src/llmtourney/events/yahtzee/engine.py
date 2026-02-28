@@ -300,6 +300,45 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
             },
         }
 
+    # ------------------------------------------------------------------
+    # Resume support
+    # ------------------------------------------------------------------
+
+    def load_state(self, snapshot: dict, seed: int) -> None:
+        """Restore full game state from a telemetry snapshot."""
+        super().load_state(snapshot, seed)
+
+        self._round_number = snapshot["round"]
+        self._turn_number = snapshot["turn_number"]
+        self._roll_number = snapshot["roll_number"]
+
+        # Restore current player index from active_player
+        active = snapshot.get("active_player")
+        if active and active in self._player_ids:
+            self._current_player_idx = self._player_ids.index(active)
+        else:
+            self._current_player_idx = 0
+
+        # Restore dice
+        self._dice = {p: list(d) for p, d in snapshot["dice"].items()}
+
+        # Restore scorecards — strip computed keys
+        computed_keys = {"_upper_subtotal", "_upper_bonus", "_yahtzee_bonuses", "_total"}
+        self._scorecards = {}
+        for pid, sc in snapshot["scorecards"].items():
+            self._scorecards[pid] = {
+                k: v for k, v in sc.items() if k not in computed_keys
+            }
+
+        # Restore yahtzee bonuses from scorecard computed field
+        self._yahtzee_bonuses = {
+            pid: snapshot["scorecards"][pid].get("_yahtzee_bonuses", 0)
+            for pid in self._player_ids
+        }
+
+        self._round_decisions = dict(snapshot.get("round_decisions", {}))
+        self._commentary = list(snapshot.get("commentary", []))
+
     def eliminate_player(self, player_id: str) -> None:
         """Auto-fill remaining categories with 0 and advance past this player."""
         for cat in ALL_CATEGORIES:

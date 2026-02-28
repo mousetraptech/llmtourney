@@ -124,6 +124,10 @@ class Referee:
 
         return Ruling.FORFEIT_TURN
 
+    def restore_strikes(self, player_id: str, count: int) -> None:
+        """Restore strike count for a player (used when resuming a match)."""
+        self._turn_forfeit_count[player_id] = count
+
     def get_strikes(self, player_id: str) -> int:
         """Return the cumulative strike count for a player."""
         return self._turn_forfeit_count[player_id]

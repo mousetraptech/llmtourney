@@ -320,9 +320,21 @@ class TournamentEngine:
         event_cfg: EventConfig,
         models: list[str],
         match_id: str | None = None,
+        resume_state: dict | None = None,
     ) -> MatchResult:
-        """Execute a match with N players."""
-        if match_id is None:
+        """Execute a match with N players.
+
+        Parameters
+        ----------
+        resume_state : dict, optional
+            If provided, resumes a match from a prior telemetry snapshot.
+            Keys: ``snapshot`` (state_snapshot dict), ``turn_number`` (int),
+            ``strikes`` (dict[str, int] player_id -> cumulative strikes),
+            ``match_id`` (str).
+        """
+        if resume_state:
+            match_id = resume_state["match_id"]
+        elif match_id is None:
             short_id = uuid.uuid4().hex[:6]
             match_id = f"{event_name}-{'-vs-'.join(models)}-{short_id}"
         deterministic_key = f"{event_name}-{'-vs-'.join(models)}"
@@ -343,6 +355,14 @@ class TournamentEngine:
             escalation=self.config.forfeit_escalation,
             num_players=len(models),
         )
+
+        # Resume: restore event state and referee strikes
+        if resume_state:
+            new_seed = hash((seed, resume_state["turn_number"])) & 0xFFFFFFFF
+            event.load_state(resume_state["snapshot"], new_seed)
+            for pid, strikes in resume_state.get("strikes", {}).items():
+                referee.restore_strikes(pid, strikes)
+
         tournament_context = {
             "tournament_name": self.config.name,
             "tier": "unknown",
@@ -358,7 +378,7 @@ class TournamentEngine:
         player_models = dict(zip(player_ids, models))
         self._current_player_models = player_models
 
-        turn_number = 0
+        turn_number = resume_state["turn_number"] if resume_state else 0
         match_forfeit_ruling: str | None = None  # "completed" or "match_forfeit"
         _last_escalation_ruling: str | None = None  # set by _handle_forfeit_turn
 

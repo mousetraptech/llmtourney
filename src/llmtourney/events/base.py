@@ -288,6 +288,25 @@ class MultiplayerSeriesEvent(Event):
     # Abstract
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Resume support
+    # ------------------------------------------------------------------
+
+    def load_state(self, snapshot: dict, seed: int) -> None:
+        """Restore match-level state from a telemetry snapshot.
+
+        Must be called after reset(). Subclasses override to restore
+        game-specific state and should call super().load_state() first.
+        """
+        self._rng = random.Random(seed)
+        self._game_number = snapshot["game_number"]
+        self._match_scores = {p: float(v) for p, v in snapshot["match_scores"].items()}
+        self._terminal = snapshot.get("terminal", False)
+
+    # ------------------------------------------------------------------
+    # Abstract
+    # ------------------------------------------------------------------
+
     @abstractmethod
     def _start_new_game(self) -> None:
         """Initialize game-specific state for a new game in the series."""
