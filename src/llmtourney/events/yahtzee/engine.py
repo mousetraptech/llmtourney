@@ -109,6 +109,7 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
 
         # Yahtzee-specific tracking
         self._commentary: list[dict] = []  # recent events for spectator
+        self._eliminated_players: set[str] = set()  # stuck-loop eliminated
 
     # ------------------------------------------------------------------
     # Event ABC
@@ -290,6 +291,7 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
             "round_decisions": dict(self._round_decisions),
             "terminal": self._terminal,
             "match_scores": dict(self._match_scores),
+            "eliminated_players": sorted(self._eliminated_players),
             "commentary": self._commentary[-20:],
             "potential_scores": {
                 p: {
@@ -338,9 +340,11 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
 
         self._round_decisions = dict(snapshot.get("round_decisions", {}))
         self._commentary = list(snapshot.get("commentary", []))
+        self._eliminated_players = set(snapshot.get("eliminated_players", []))
 
     def eliminate_player(self, player_id: str) -> None:
-        """Auto-fill remaining categories with 0 and advance past this player."""
+        """Mark player as eliminated — zero-fill scorecard, skip in future rounds."""
+        self._eliminated_players.add(player_id)
         for cat in ALL_CATEGORIES:
             if self._scorecards[player_id][cat] is None:
                 self._scorecards[player_id][cat] = 0
@@ -362,9 +366,9 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
         self._turn_number = 0
         self._commentary = []
 
-        # Initialize scorecards
+        # Initialize scorecards (eliminated players get zero-filled)
         self._scorecards = {
-            p: {cat: None for cat in ALL_CATEGORIES}
+            p: {cat: (0 if p in self._eliminated_players else None) for cat in ALL_CATEGORIES}
             for p in self._player_ids
         }
         self._yahtzee_bonuses = {p: 0 for p in self._player_ids}
@@ -379,9 +383,17 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
             self._finish_game()
             return
 
+        # Find first non-eliminated player
         self._current_player_idx = 0
+        while (self._current_player_idx < self._num_players
+               and self._player_ids[self._current_player_idx] in self._eliminated_players):
+            self._current_player_idx += 1
+        if self._current_player_idx >= self._num_players:
+            # All players eliminated — end game
+            self._finish_game()
+            return
         self._round_decisions = {}
-        self._start_player_turn(self._player_ids[0])
+        self._start_player_turn(self._player_ids[self._current_player_idx])
 
     def _start_player_turn(self, player_id: str) -> None:
         """Roll initial 5 dice for a player's turn."""
@@ -389,10 +401,14 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
         self._dice[player_id] = [self._rng.randint(1, 6) for _ in range(5)]
 
     def _advance_to_next_player(self) -> None:
-        """Move to next player in the round, or start new round if all done."""
+        """Move to next non-eliminated player in the round, or start new round."""
         self._current_player_idx += 1
+        # Skip eliminated players
+        while (self._current_player_idx < self._num_players
+               and self._player_ids[self._current_player_idx] in self._eliminated_players):
+            self._current_player_idx += 1
         if self._current_player_idx >= self._num_players:
-            # All players have scored this round — reveal decisions
+            # All active players have scored this round — reveal decisions
             self._reveal_round_decisions()
             self._start_new_round()
         else:

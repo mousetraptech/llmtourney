@@ -41,7 +41,7 @@ from llmtourney.events.bullshit.engine import BullshitEvent
 from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 from llmtourney.events.yahtzee.engine import YahtzeeEvent
 
-_MULTIPLAYER_EVENTS = {"bullshit", "liarsdice", "yahtzee", "rollerderby"}
+_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby"}
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,

@@ -119,7 +119,8 @@ class Referee:
                 self._match_forfeited_by = player_id
                 return Ruling.FORFEIT_MATCH
             else:
-                self._eliminated_players.append(player_id)
+                if player_id not in self._eliminated_players:
+                    self._eliminated_players.append(player_id)
                 return Ruling.ELIMINATE_PLAYER
 
         return Ruling.FORFEIT_TURN

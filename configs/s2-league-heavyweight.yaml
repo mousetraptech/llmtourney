@@ -1,0 +1,123 @@
+tournament:
+  name: "s2-league-heavyweight"
+  seed: 2003
+  format: league
+  version: "2.0.0"
+
+# ── S2 Heavyweight League ───────────────────────────────────────
+# 9-seat multiplayer league. Four events. Five fixtures each.
+# The flagships. Every turn costs real money. Make it count.
+# Sonnet promoted from midtier. Maverick stays here only (no dual-listing).
+
+models:
+  claude-opus-4.6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4.6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  gpt-5:
+    provider: openrouter
+    model_id: openai/gpt-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  gemini-2.5-pro:
+    provider: openrouter
+    model_id: google/gemini-2.5-pro
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  grok-3:
+    provider: openrouter
+    model_id: x-ai/grok-3
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  deepseek-r1:
+    provider: openrouter
+    model_id: deepseek/deepseek-r1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  o4-mini:
+    provider: openrouter
+    model_id: openai/o4-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  nemotron-ultra:
+    provider: openrouter
+    model_id: nvidia/nemotron-ultra
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  mistral-large-3:
+    provider: openrouter
+    model_id: mistralai/mistral-large-2512
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+  claude-sonnet-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 120.0
+
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 75
+    starting_stack: 300
+    blinds: [1, 2]
+    blind_schedule:
+      20: [2, 4]
+      35: [4, 8]
+      50: [8, 16]
+      65: [16, 32]
+    rounds: 5
+
+  bullshit:
+    weight: 1
+    games_per_match: 5
+    rounds: 5
+
+  liarsdice:
+    weight: 1
+    games_per_match: 5
+    mode: redistribution
+    rounds: 5
+
+  rollerderby:
+    weight: 1
+    games_per_match: 3
+    rounds: 5
+
+shot_clock:
+  default_ms: 120000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 120.0
