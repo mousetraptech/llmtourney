@@ -170,6 +170,8 @@ class LiarsDiceEvent(Event):
             bid_f = self._current_bid["face"]
             bidder_label = self._player_labels[self._current_bid["bidder"]]
             lines.append(f"Current bid: {bid_q} {FACE_NAMES[bid_f]} (by Player {bidder_label})")
+            bid_prob = self.bid_probability(bid_q, bid_f, my_dice, total_dice, self._wilds_active)
+            lines.append(f"Probability the current bid is true (from your perspective): {bid_prob:.0%}")
             lines.append("")
 
             # Bid history this round
@@ -223,6 +225,8 @@ class LiarsDiceEvent(Event):
             lines.append("- Each unknown die has ~1/6 chance of matching (no wilds).")
         lines.append("- Think about whether the current bid is plausible given the total dice count.")
         lines.append("- Consider what your raise signals to other players.")
+        if len(active_players) >= 6:
+            lines.append("- In a large game, conservative play allows others to accumulate advantages. Consider when aggression is warranted.")
         if self._mode == "redistribution":
             lines.append("- REDISTRIBUTION MODE: Winning a challenge gains you a die. Challenges are high-reward, not just defensive.")
             lines.append("- A successful challenge grows your cup AND shrinks theirs — double swing.")
