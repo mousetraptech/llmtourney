@@ -41,7 +41,7 @@ from llmtourney.events.bullshit.engine import BullshitEvent
 from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 from llmtourney.events.yahtzee.engine import YahtzeeEvent
 
-_MULTIPLAYER_EVENTS = {"bullshit", "liarsdice", "yahtzee"}
+_MULTIPLAYER_EVENTS = {"bullshit", "liarsdice", "yahtzee", "rollerderby"}
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -283,7 +283,7 @@ class TournamentEngine:
                 num_players=num_players,
                 mode=event_cfg.mode,
             )
-        if event_name == "yahtzee":
+        if event_name in ("yahtzee", "rollerderby"):
             return YahtzeeEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
@@ -813,7 +813,7 @@ class TournamentEngine:
 
         # Build match summary extras
         match_extra: dict = {
-            "event": event_name,
+            "event_type": event_name,
             "player_models": player_models,
             "highlight_hands": event.get_highlight_hands(),
             "ruling": "engine_crash" if _match_error else (match_forfeit_ruling or "completed"),

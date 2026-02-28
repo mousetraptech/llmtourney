@@ -69,6 +69,16 @@ class Event(ABC):
     def action_schema(self) -> dict:
         """Return the JSON Schema for valid actions in this event."""
 
+    @property
+    def display_name(self) -> str:
+        """Human-readable display name for this event.
+
+        Defaults to the class name without 'Event' suffix.
+        Override for custom display names (e.g., Roller Derby).
+        """
+        name = type(self).__name__
+        return name.removesuffix("Event") or name
+
     def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
         """Award remaining games/chips to opponent on match forfeit.
 

@@ -11,7 +11,6 @@ load_dotenv(Path.home() / "projects" / ".env")
 from llmtourney.config import load_config
 from llmtourney.tournament import TournamentEngine
 
-import sys
 cfg_path = sys.argv[1] if len(sys.argv) > 1 else "configs/bullshit-midtier-match.yaml"
 config = load_config(Path(cfg_path))
 engine = TournamentEngine(config)

@@ -32,7 +32,7 @@ models:
     temperature: 0.0
 
 events:
-  yahtzee:
+  rollerderby:
     weight: 1
     games_per_match: 3
 

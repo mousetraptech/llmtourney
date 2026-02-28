@@ -2,7 +2,7 @@
 name: llmtourney
 description: >
   Analyze LLM Tourney data — a tournament system where AI models compete in classic games
-  (holdem, connect four, reversi, tic-tac-toe, checkers, scrabble, bullshit). Use this skill
+  (holdem, connect four, reversi, tic-tac-toe, checkers, scrabble, bullshit, liar's dice, roller derby). Use this skill
   whenever the user asks about tournament results, model performance, win rates, head-to-head
   matchups, violations, fidelity, leaderboards, game-specific stats, or anything related to
   LLM Tourney. Also trigger when the user mentions model matchups, AI game competitions,
@@ -35,10 +35,12 @@ This skill helps Claude query, analyze, and visualize tournament data.
 | **checkers** | Board | 2 | Binary win/loss/draw | Multi-jump captures, king promotion |
 | **scrabble** | Word | 2 | Point total (continuous) | Tile placement, word validation — hardest for LLMs |
 | **bullshit** | Card | 2-6 | Elimination scoring | Deception, bluff-calling, card counting |
+| **liarsdice** | Dice | 2-9 | Elimination scoring | Bluffing, probability, bid escalation |
+| **rollerderby** | Dice | 2-9 | Rank-based (N-1 for 1st) | Yahtzee-style scoring, category selection, rerolls |
 
 ### Scoring Nuance
 
-Holdem uses chip-based scoring — a model can win by accumulating chips over many hands, so the final score is a chip count, not binary. Tic-tac-toe uses best-of-N series (typically 9 games per match) where the match winner has the most game wins. Other games use their natural scoring (piece count for reversi, points for scrabble, elimination order for bullshit).
+Holdem uses chip-based scoring — a model can win by accumulating chips over many hands, so the final score is a chip count, not binary. Tic-tac-toe uses best-of-N series (typically 9 games per match) where the match winner has the most game wins. Roller Derby (internally "yahtzee") uses rank-based scoring: N-1 points for 1st, N-2 for 2nd, etc., with ties sharing averaged positions. Other games use their natural scoring (piece count for reversi, points for scrabble, elimination order for bullshit/liarsdice).
 
 ## Tournament Structure
 
@@ -138,7 +140,7 @@ One document per completed match.
 
 ```
 match_id: string      — unique match identifier
-event_type: string    — game name ("holdem", "connectfour", etc.)
+event_type: string    — game name ("holdem", "connectfour", "rollerderby", etc.)
 tournament_name: string
 tier: string          — "heavyweight", "midtier", "flyweight", or null for mixed
 round: number

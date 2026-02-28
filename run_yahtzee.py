@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a single multiplayer yahtzee match."""
+"""Run a single multiplayer Roller Derby (yahtzee) match."""
 
 import sys
 from pathlib import Path
@@ -16,10 +16,11 @@ config = load_config(Path(cfg_path))
 engine = TournamentEngine(config)
 
 models = list(config.models.keys())
-print(f"Running yahtzee match: {' vs '.join(models)}")
+print(f"Running Roller Derby match: {' vs '.join(models)}")
 
-event_cfg = config.events["yahtzee"]
-result = engine._run_multiplayer_match("yahtzee", event_cfg, models)
+# Support both "rollerderby" and legacy "yahtzee" config keys
+event_cfg = config.events.get("rollerderby") or config.events["yahtzee"]
+result = engine._run_multiplayer_match("rollerderby", event_cfg, models)
 
 print(f"\nMatch complete: {result.match_id}")
 print(f"Scores: {result.scores}")

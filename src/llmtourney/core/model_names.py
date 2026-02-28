@@ -33,6 +33,7 @@ _CANONICAL: dict[str, list[str]] = {
     # --- Anthropic ---
     "claude-opus-4.6": [
         "anthropic/claude-opus-4.6",
+        "anthropic/claude-opus-4-6",
         "opus-4.6", "opus",
     ],
     "claude-sonnet-4.5": [
@@ -77,6 +78,18 @@ _CANONICAL: dict[str, list[str]] = {
         "google/gemini-2.0-flash-001",
         "google/gemini-2.0-flash",
     ],
+    "gemini-2.0-flash-lite": [
+        "google/gemini-2.0-flash-lite-001",
+    ],
+    "gemini-flash-1.5": [
+        "google/gemini-flash-1.5",
+    ],
+    "gemma-3-4b": [
+        "google/gemma-3-4b-it:free",
+    ],
+    "gemma-3-12b": [
+        "google/gemma-3-12b-it:free",
+    ],
 
     # --- DeepSeek ---
     "deepseek-r1": [
@@ -97,6 +110,9 @@ _CANONICAL: dict[str, list[str]] = {
         "x-ai/grok-3-mini",
         "x-ai/grok-3-mini-beta",
     ],
+    "grok-4.1-fast": [
+        "x-ai/grok-4.1-fast",
+    ],
 
     # --- Meta ---
     "llama-4-maverick": [
@@ -107,10 +123,14 @@ _CANONICAL: dict[str, list[str]] = {
         "meta-llama/llama-4-scout-instruct",
         "llama-scout",
     ],
+    "llama-3.2-3b": [
+        "meta-llama/llama-3.2-3b-instruct:free",
+    ],
 
     # --- Mistral ---
     "mistral-large-3": [
         "mistralai/mistral-large-2512",
+        "mistralai/mistral-large",
         "mistral-large", "mistral",
     ],
     "mistral-medium-3.1": [
@@ -118,6 +138,19 @@ _CANONICAL: dict[str, list[str]] = {
     ],
     "mistral-small": [
         "mistralai/mistral-small-3.1-24b-instruct",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
+    ],
+    "ministral-8b": [
+        "mistralai/ministral-8b",
+    ],
+    "ministral-3b": [
+        "mistralai/ministral-3b-2512",
+    ],
+    "devstral": [
+        "mistralai/devstral-2512",
+    ],
+    "mixtral-8x22b": [
+        "mistralai/mixtral-8x22b-instruct",
     ],
 
     # --- NVIDIA ---
@@ -132,6 +165,9 @@ _CANONICAL: dict[str, list[str]] = {
     "nova-pro": [
         "amazon/nova-pro-v1",
     ],
+    "nova-micro": [
+        "amazon/nova-micro-v1",
+    ],
 
     # --- Qwen ---
     "qwen3-235b": [
@@ -140,6 +176,19 @@ _CANONICAL: dict[str, list[str]] = {
     "qwen3-80b": [
         "qwen/qwen3-next-80b-a3b-instruct",
         "qwen3-next-80b",
+    ],
+    "qwen3-8b": [
+        "qwen/qwen3-8b",
+        "qwen/qwen3-8b:free",
+    ],
+    "qwen3-30b": [
+        "qwen/qwen3-30b-a3b",
+    ],
+    "qwen3-4b": [
+        "qwen/qwen3-4b:free",
+    ],
+    "qwen3-vl-30b": [
+        "qwen/qwen3-vl-30b-a3b-thinking",
     ],
 
     # --- Perplexity ---
@@ -153,6 +202,16 @@ _CANONICAL: dict[str, list[str]] = {
     ],
     "glm-4.7": [
         "thudm/glm-4.7",
+        "z-ai/glm-4.7",  # config typo — normalize to canonical
+    ],
+    "nemotron-nano": [
+        "nvidia/nemotron-3-nano-30b-a3b:free",
+    ],
+    "minimax-m2": [
+        "minimax/minimax-m2-her",
+    ],
+    "kimi-k2": [
+        "moonshotai/kimi-k2-thinking",
     ],
 }
 

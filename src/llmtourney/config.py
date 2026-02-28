@@ -69,11 +69,34 @@ class TournamentConfig:
     forfeit_escalation: ForfeitEscalationConfig | None = None
 
 
+class ConfigError(Exception):
+    """Raised when a config file is missing required fields."""
+    pass
+
+
+def _validate_required(raw: dict, path: Path) -> None:
+    """Validate required top-level config structure."""
+    if "tournament" not in raw:
+        raise ConfigError(f"{path}: missing required 'tournament' section")
+    t = raw["tournament"]
+    for key in ("name", "seed"):
+        if key not in t:
+            raise ConfigError(f"{path}: tournament.{key} is required")
+    if "models" not in raw or not raw["models"]:
+        raise ConfigError(f"{path}: 'models' section is required and must not be empty")
+    if "events" not in raw or not raw["events"]:
+        raise ConfigError(f"{path}: 'events' section is required and must not be empty")
+    for model_name, m in raw["models"].items():
+        if "provider" not in m:
+            raise ConfigError(f"{path}: models.{model_name}.provider is required")
+
+
 def load_config(path: Path) -> TournamentConfig:
     """Load tournament config from YAML file."""
     with open(path) as f:
         raw = yaml.safe_load(f)
 
+    _validate_required(raw, path)
     t = raw["tournament"]
     compute = raw.get("compute_caps", {})
 
