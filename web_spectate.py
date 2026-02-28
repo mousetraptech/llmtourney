@@ -782,7 +782,7 @@ function renderFooter() {
 function renderShotClock() {
   var el = document.getElementById('shot-clock');
   if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
-  el.style.display = '';
+  el.style.display = 'block';
   var display = document.getElementById('clock-display');
   var label = document.getElementById('clock-label');
   var strikeEl = document.getElementById('strike-info');
@@ -1667,7 +1667,7 @@ function renderFooter() {
 function renderShotClock() {
   var el = document.getElementById('shot-clock');
   if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
-  el.style.display = '';
+  el.style.display = 'block';
   var display = document.getElementById('clock-display');
   var label = document.getElementById('clock-label');
   var strikeEl = document.getElementById('strike-info');
@@ -2529,7 +2529,7 @@ function renderFooter() {
 function renderShotClock() {
   var el = document.getElementById('shot-clock');
   if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
-  el.style.display = '';
+  el.style.display = 'block';
   var display = document.getElementById('clock-display');
   var label = document.getElementById('clock-label');
   var strikeEl = document.getElementById('strike-info');
@@ -3406,7 +3406,7 @@ function renderFooter() {
 function renderShotClock() {
   var el = document.getElementById('shot-clock');
   if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
-  el.style.display = '';
+  el.style.display = 'block';
   var display = document.getElementById('clock-display');
   var label = document.getElementById('clock-label');
   var strikeEl = document.getElementById('strike-info');
@@ -4279,7 +4279,7 @@ function renderFooter() {
 function renderShotClock() {
   var el = document.getElementById('shot-clock');
   if (!S.shotClock.timeLimitMs || S.finished) { el.style.display = 'none'; return; }
-  el.style.display = '';
+  el.style.display = 'block';
   var display = document.getElementById('clock-display');
   var label = document.getElementById('clock-label');
   var strikeEl = document.getElementById('strike-info');
