@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from llmtourney.core.model_names import normalize
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_URI = "mongodb://localhost:27017"
@@ -77,9 +79,12 @@ def _derive_winner(
 def _build_match_doc(summary: dict) -> dict[str, Any]:
     """Build a MongoDB match document from a JSONL match_summary record."""
     scores = summary.get("final_scores", {})
-    player_models = summary.get("player_models", {})
+    raw_player_models = summary.get("player_models", {})
     fidelity = summary.get("fidelity_report", {})
     event_type = summary.get("event", "unknown")
+
+    # Normalize model identifiers
+    player_models = {k: normalize(v) for k, v in raw_player_models.items()}
 
     return {
         "match_id": summary["match_id"],
@@ -113,6 +118,11 @@ def _enrich_turns(
         t["tier"] = tier
         t["round"] = round_num
         t["_ingested_at"] = now
+        # Normalize model identifiers
+        if "model_id" in t:
+            t["model_id"] = normalize(t["model_id"])
+        if "model_version" in t:
+            t["model_version"] = normalize(t["model_version"])
     return turns
 
 
@@ -127,7 +137,8 @@ def _build_model_stat_updates(
     winner = _derive_winner(scores, player_models)
 
     updates = []
-    for player_id, model_id in player_models.items():
+    for player_id, raw_model_id in player_models.items():
+        model_id = normalize(raw_model_id)
         is_winner = winner == model_id
         is_draw = winner is None
         player_fidelity = fidelity.get(player_id, {})

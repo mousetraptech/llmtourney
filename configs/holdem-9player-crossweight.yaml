@@ -1,0 +1,95 @@
+tournament:
+  name: "holdem-9player-crossweight"
+  seed: 99
+  format: bracket
+  version: "0.1.0"
+
+# 8-player crossweight holdem — bantam vs midtier models head to head
+
+models:
+  mistral-small-3.1:
+    provider: openrouter
+    model_id: mistralai/mistral-small-3.1-24b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  deepseek-v3:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  haiku-3.5:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  claude-sonnet-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  haiku-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 75
+    starting_stack: 300
+    blinds: [1, 2]
+    blind_schedule:
+      20: [2, 4]
+      35: [4, 8]
+      50: [8, 16]
+      65: [16, 32]
+
+shot_clock:
+  default_ms: 45000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0

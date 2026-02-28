@@ -396,6 +396,7 @@ class HoldemEvent(Event):
             "pot": self._pot,
             "stacks": reported_stacks,
             "community_cards": list(self._community),
+            "hole_cards": {pid: list(self._hole_cards.get(pid, [])) for pid in self._player_ids},
             "dealer": self._dealer,
             "active_player": self._active_player,
             "terminal": self._terminal,

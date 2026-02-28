@@ -15,6 +15,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
+from llmtourney.core.model_names import normalize
 from llmtourney.core.telemetry import TelemetryEntry
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,10 @@ class MongoSink:
         doc["timestamp"] = datetime.now(timezone.utc).isoformat()
         doc["_ingested_at"] = datetime.now(timezone.utc)
 
+        # Normalize model identifiers
+        doc["model_id"] = normalize(doc.get("model_id", ""))
+        doc["model_version"] = normalize(doc.get("model_version", ""))
+
         # Denormalize tournament context
         doc["event_type"] = tournament_context.get("event_type")
         doc["tournament_name"] = tournament_context.get("tournament_name")
@@ -134,6 +139,9 @@ class MongoSink:
         """Enqueue match summary upsert and model stat updates."""
         if self._disabled:
             return
+
+        # Normalize model identifiers
+        player_models = {k: normalize(v) for k, v in player_models.items()}
 
         # Derive winner
         winner = self._derive_winner(scores, player_models)

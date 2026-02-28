@@ -1,0 +1,103 @@
+tournament:
+  name: "holdem-9player-nano"
+  seed: 42
+  format: bracket
+  version: "0.1.0"
+
+# 9-player small-model holdem
+
+models:
+  qwen3-8b:
+    provider: openrouter
+    model_id: qwen/qwen3-8b
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  qwen3-30b-a3b:
+    provider: openrouter
+    model_id: qwen/qwen3-30b-a3b
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  qwen3-4b:
+    provider: openrouter
+    model_id: qwen/qwen3-4b:free
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  gemma-3-4b:
+    provider: openrouter
+    model_id: google/gemma-3-4b-it:free
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  gemma-3-12b:
+    provider: openrouter
+    model_id: google/gemma-3-12b-it:free
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  mistral-small-3.1:
+    provider: openrouter
+    model_id: mistralai/mistral-small-3.1-24b-instruct:free
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  nemotron-nano:
+    provider: openrouter
+    model_id: nvidia/nemotron-3-nano-30b-a3b:free
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  llama-3.2-3b:
+    provider: openrouter
+    model_id: meta-llama/llama-3.2-3b-instruct:free
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  ministral-3b:
+    provider: openrouter
+    model_id: mistralai/ministral-3b-2512
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 75
+    starting_stack: 300
+    blinds: [1, 2]
+    blind_schedule:
+      20: [2, 4]
+      35: [4, 8]
+      50: [8, 16]
+      65: [16, 32]
+
+shot_clock:
+  default_ms: 45000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0

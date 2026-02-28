@@ -10,5 +10,6 @@ build/
 .env
 .DS_Store
 .claude/
+.collab/
 .playwright-cli/
 tournament-results.html
