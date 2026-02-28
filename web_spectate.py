@@ -7851,6 +7851,23 @@ body {
 #scorecard-table .total-row td {
   padding: 6px 8px;
 }
+/* Per-player shot clocks in header */
+#scorecard-table .clock-row td {
+  padding: 6px 4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border);
+}
+#scorecard-table .clock-row td.clock-active {
+  border-bottom-color: var(--cyan);
+}
+.clock-ok { color: var(--green); }
+.clock-warn { color: var(--yellow); }
+.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+.clock-idle { color: var(--dim); font-size: 11px; font-weight: normal; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 #scorecard-table td.active-col {
   background: rgba(88, 166, 255, 0.08);
   border-color: var(--cyan);
@@ -8152,6 +8169,16 @@ let playerIds = [];
 let playerLabels = {};
 let playerModels = {};
 
+// Per-player shot clock state
+let shotClock = {
+  timeLimitMs: 0,
+  activePid: null,
+  turnStartTime: Date.now(),
+  lastLatency: {},   // pid -> last latency in ms
+  strikes: {},       // pid -> cumulative strikes
+  strikeLimit: null,
+};
+
 function shortModel(name) {
   if (!name) return '';
   return name.replace(/^(openai|anthropic|google|x-ai|deepseek|meta|mistralai|amazon|perplexity)\//i, '')
@@ -8221,6 +8248,9 @@ function buildScorecard() {
 
   const body = document.getElementById('sc-body');
   body.innerHTML = '';
+
+  // Shot clock row
+  addClockRow(body);
 
   // Upper section header
   addSectionRow(body, 'UPPER SECTION');
@@ -8298,6 +8328,62 @@ function addTotalRow(body) {
   body.appendChild(tr);
 }
 
+function addClockRow(body) {
+  const tr = document.createElement('tr');
+  tr.className = 'clock-row';
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = 'SHOT CLOCK';
+  td.style.color = 'var(--dim)';
+  td.style.fontSize = '10px';
+  td.style.letterSpacing = '1px';
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.clock = '1';
+    cell.textContent = '--';
+    cell.className = 'clock-idle';
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function renderClocks() {
+  const now = Date.now();
+  const pending = shotClock.pendingPids || new Set();
+  playerIds.forEach(pid => {
+    const cell = document.querySelector('td[data-pid="' + pid + '"][data-clock="1"]');
+    if (!cell) return;
+    cell.style.color = '';
+    if (pid === shotClock.activePid && shotClock.timeLimitMs && !isReplaying && pending.has(pid)) {
+      // Currently being queried — live countdown
+      const elapsed = now - shotClock.turnStartTime;
+      const remaining = Math.max(0, shotClock.timeLimitMs - elapsed);
+      const secs = remaining / 1000;
+      cell.textContent = secs.toFixed(1) + 's';
+      cell.className = secs > 20 ? 'clock-ok clock-active' : secs > 5 ? 'clock-warn clock-active' : 'clock-danger clock-active';
+    } else if (pending.has(pid) && shotClock.timeLimitMs && !isReplaying) {
+      // Pending this round but not yet being queried — waiting
+      cell.textContent = 'ON CLOCK';
+      cell.className = 'clock-ok clock-active';
+    } else if (shotClock.lastLatency[pid] !== undefined) {
+      // Already decided or between rounds — show last latency
+      const lat = shotClock.lastLatency[pid] / 1000;
+      cell.textContent = lat.toFixed(1) + 's';
+      cell.className = 'clock-idle';
+      const strikes = shotClock.strikes[pid] || 0;
+      if (strikes > 0) {
+        cell.textContent += ' \u26A0' + strikes;
+        cell.style.color = 'var(--yellow)';
+      }
+    } else {
+      cell.textContent = '--';
+      cell.className = 'clock-idle';
+    }
+  });
+}
+
 function buildDiceArea() {
   const area = document.getElementById('dice-area');
   area.innerHTML = '';
@@ -8349,24 +8435,29 @@ function renderState(snap) {
   document.getElementById('game-badge').textContent = gpMatch > 1 ? `Game ${snap.game_number}/${gpMatch}` : '';
   document.getElementById('game-badge').style.display = gpMatch > 1 ? '' : 'none';
 
-  if (activePid && !snap.terminal) {
-    const pi = playerIds.indexOf(activePid);
-    const name = displayName(activePid);
+  // Concurrent: all players who haven't scored this round are "active"
+  const roundDec = snap.round_decisions || {};
+  const pendingPids = new Set(playerIds.filter(pid => !roundDec[pid]));
+  const decided = Object.keys(roundDec).length;
+
+  if (!snap.terminal) {
     document.getElementById('active-info').innerHTML =
-      `<span style="color:var(--${PLAYER_COLORS[pi]})">${name}</span> — Roll ${snap.roll_number || 1} of 3`;
-  } else if (snap.terminal) {
+      `Round ${snap.round || 0} — <span style="color:var(--cyan)">${decided}/${playerIds.length} decided</span>`;
+  } else {
     document.getElementById('active-info').textContent = 'GAME OVER';
   }
+
+  // Track which players are pending for shot clocks
+  shotClock.pendingPids = pendingPids;
 
   // Update scorecard
   const scorecards = snap.scorecards || {};
   const potential = snap.potential_scores || {};
-  const roundDec = snap.round_decisions || {};
 
   playerIds.forEach((pid, i) => {
     const sc = scorecards[pid] || {};
     const pot = potential[pid] || {};
-    const isActive = pid === activePid;
+    const isActive = pendingPids.has(pid) && !snap.terminal;
 
     ALL_CATS.forEach(cat => {
       const cell = document.querySelector(`td[data-pid="${pid}"][data-cat="${cat}"]`);
@@ -8416,7 +8507,7 @@ function renderState(snap) {
     if (!row) return;
     const dies = row.querySelectorAll('.die');
     const pDice = dice[pid] || [];
-    const isActive = pid === activePid;
+    const isActive = pendingPids.has(pid) && !snap.terminal;
     dies.forEach((die, d) => {
       die.textContent = pDice[d] || '';
       die.className = 'die' + (isActive ? ' active' : '');
@@ -8560,6 +8651,23 @@ evtSource.onmessage = (event) => {
   try {
     const data = JSON.parse(event.data);
     extractModels(data);
+    // Update shot clock state from telemetry
+    if (data.time_limit_ms) shotClock.timeLimitMs = data.time_limit_ms;
+    if (data.strike_limit) shotClock.strikeLimit = data.strike_limit;
+    if (data.player_id && data.latency_ms !== undefined) {
+      shotClock.lastLatency[data.player_id] = data.latency_ms;
+    }
+    if (data.player_id && data.cumulative_strikes !== undefined) {
+      shotClock.strikes[data.player_id] = data.cumulative_strikes;
+    }
+    // Figure out who's next from state snapshot
+    if (data.state_snapshot && data.state_snapshot.active_player) {
+      shotClock.activePid = data.state_snapshot.active_player;
+      shotClock.turnStartTime = Date.now();
+    }
+    if (data.state_snapshot && data.state_snapshot.terminal) {
+      shotClock.activePid = null;
+    }
     entries.push(data);
     slider.max = entries.length - 1;
     if (isLive) goToEntry(entries.length - 1);
@@ -8568,6 +8676,10 @@ evtSource.onmessage = (event) => {
 evtSource.onerror = () => {
   setTimeout(() => location.reload(), 3000);
 };
+// Per-player shot clock countdown
+setInterval(function() {
+  if (shotClock.timeLimitMs && !isReplaying) renderClocks();
+}, 100);
 </script>
 </body>
 </html>"""

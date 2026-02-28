@@ -1,0 +1,88 @@
+tournament:
+  name: "rollerderby-8player-bantam"
+  seed: 888
+  format: round_robin
+  version: "0.1.0"
+
+# 8-player bantamweight roller derby — cheap models rolling dice
+
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  haiku-3.5:
+    provider: openrouter
+    model_id: anthropic/claude-3.5-haiku
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  gemini-flash-lite:
+    provider: openrouter
+    model_id: google/gemini-2.0-flash-lite-001
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  mistral-small-3.1:
+    provider: openrouter
+    model_id: mistralai/mistral-small-3.1-24b-instruct
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  qwen3-8b:
+    provider: openrouter
+    model_id: qwen/qwen3-8b
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  nova-lite:
+    provider: openrouter
+    model_id: amazon/nova-lite-v1
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+events:
+  rollerderby:
+    weight: 1
+    games_per_match: 3
+
+shot_clock:
+  default_ms: 45000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 45.0
