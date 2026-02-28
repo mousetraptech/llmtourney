@@ -39,8 +39,9 @@ from llmtourney.events.connectfour.engine import ConnectFourEvent
 from llmtourney.events.reversi.engine import ReversiEvent
 from llmtourney.events.bullshit.engine import BullshitEvent
 from llmtourney.events.liarsdice.engine import LiarsDiceEvent
+from llmtourney.events.yahtzee.engine import YahtzeeEvent
 
-_MULTIPLAYER_EVENTS = {"bullshit", "liarsdice"}
+_MULTIPLAYER_EVENTS = {"bullshit", "liarsdice", "yahtzee"}
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -282,6 +283,11 @@ class TournamentEngine:
                 num_players=num_players,
                 mode=event_cfg.mode,
             )
+        if event_name == "yahtzee":
+            return YahtzeeEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+            )
         raise ValueError(f"Unknown event: {event_name!r}")
 
     def _get_time_limit_ms(self, model_name: str) -> int | None:
@@ -350,6 +356,7 @@ class TournamentEngine:
         )
         parser = ActionParser()
         player_models = dict(zip(player_ids, models))
+        self._current_player_models = player_models
 
         turn_number = 0
         match_forfeit_ruling: str | None = None  # "completed" or "match_forfeit"
@@ -875,6 +882,11 @@ class TournamentEngine:
         reasoning = response.reasoning_text
         if not reasoning and parsed.action:
             reasoning = parsed.action.get("reasoning")
+
+        # Inject player_models into snapshot so spectators can map all
+        # player IDs to model names from the very first turn line.
+        if "player_models" not in snapshot and hasattr(self, '_current_player_models'):
+            snapshot["player_models"] = self._current_player_models
 
         entry = TelemetryEntry(
             turn_number=turn_number,

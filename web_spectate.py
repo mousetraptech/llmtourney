@@ -44,7 +44,7 @@ def resolve_jsonl_path(arg: str | None) -> Path:
     if p.exists():
         return p
     # Try with event prefixes
-    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-"):
+    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-", "yahtzee-"):
         p = TELEMETRY_DIR / f"{prefix}{arg}.jsonl"
         if p.exists():
             return p
@@ -70,6 +70,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "bullshit"
     if stem.startswith("liarsdice"):
         return "liarsdice"
+    if stem.startswith("yahtzee"):
+        return "yahtzee"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -4808,6 +4810,10 @@ function processTurn(data) {
 
   if (pid && mid) S.models[pid] = mid;
 
+  // Populate all player models from snapshot (available from first turn)
+  var pm = snap.player_models || {};
+  Object.keys(pm).forEach(function(k) { if (!S.models[k]) S.models[k] = pm[k]; });
+
   // Shot clock tracking
   if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
   if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
@@ -7712,6 +7718,807 @@ init();
 </html>"""
 
 
+# ── Yahtzee HTML/CSS/JS ──────────────────────────────────────────
+
+YAHTZEE_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yahtzee Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --gold: #f0c040;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #d29922;
+  --pe: #f97583;
+  --pf: #79c0ff;
+  --pg: #ffa657;
+  --ph: #b392f0;
+  --pi: #56d4dd;
+  --pj: #e3b341;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+#header .round-badge {
+  background: var(--cyan);
+  color: var(--bg);
+}
+#header .game-badge {
+  background: var(--magenta);
+  color: var(--bg);
+}
+
+/* Layout */
+#main {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 10px;
+}
+
+/* Scorecard table */
+#scorecard-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+#scorecard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#scorecard-table th, #scorecard-table td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+#scorecard-table th {
+  background: var(--bg);
+  color: var(--dim);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+#scorecard-table th.cat-col {
+  text-align: left;
+  min-width: 120px;
+}
+#scorecard-table .section-header {
+  background: var(--bg);
+  color: var(--cyan);
+  font-weight: bold;
+  text-align: left;
+  border-bottom: 2px solid var(--cyan);
+}
+#scorecard-table .bonus-row {
+  color: var(--gold);
+  font-weight: bold;
+}
+#scorecard-table .total-row {
+  font-weight: bold;
+  font-size: 14px;
+  border-top: 2px solid var(--text);
+}
+#scorecard-table .total-row td {
+  padding: 6px 8px;
+}
+#scorecard-table td.active-col {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: var(--cyan);
+}
+#scorecard-table td.potential {
+  color: var(--dim);
+  font-style: italic;
+}
+#scorecard-table td.scored {
+  color: var(--text);
+}
+#scorecard-table td.scored-zero {
+  color: var(--red);
+  opacity: 0.6;
+}
+#scorecard-table td.just-scored {
+  color: var(--gold);
+  font-weight: bold;
+  animation: flash-score 1s ease;
+}
+@keyframes flash-score {
+  0% { background: rgba(240, 192, 64, 0.3); }
+  100% { background: transparent; }
+}
+
+/* Right sidebar */
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Dice display */
+#dice-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#dice-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.dice-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.dice-row .player-label {
+  width: 24px;
+  font-weight: bold;
+  text-align: center;
+}
+.die {
+  width: 36px;
+  height: 36px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+}
+.die.active {
+  border-color: var(--cyan);
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.3);
+}
+.dice-index {
+  font-size: 9px;
+  color: var(--dim);
+  text-align: center;
+  width: 36px;
+}
+
+/* Score bar */
+#score-bar-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#score-bar-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.score-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.score-bar-label {
+  width: 24px;
+  font-weight: bold;
+  text-align: center;
+}
+.score-bar-track {
+  flex: 1;
+  height: 16px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.score-bar-value {
+  width: 40px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Commentary feed */
+#commentary-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  flex: 1;
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+#commentary-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.commentary-entry {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.commentary-entry:last-child {
+  border-bottom: none;
+}
+.commentary-entry .round-tag {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+/* Match scores */
+#match-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#match-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+/* Replay controls */
+#replay-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#replay-bar button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+#replay-bar button:hover {
+  border-color: var(--cyan);
+}
+#replay-bar button.active {
+  background: var(--cyan);
+  color: var(--bg);
+  border-color: var(--cyan);
+}
+#replay-slider {
+  flex: 1;
+  accent-color: var(--cyan);
+}
+#replay-counter {
+  color: var(--dim);
+  font-size: 12px;
+  min-width: 60px;
+  text-align: right;
+}
+
+/* Reasoning panel */
+#reasoning-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+  display: none;
+}
+#reasoning-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+#reasoning-text {
+  font-size: 12px;
+  color: var(--dim);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span style="font-size: 16px; font-weight: bold;">YAHTZEE</span>
+  <span class="badge round-badge" id="round-badge">Round 1/13</span>
+  <span class="badge game-badge" id="game-badge">Game 1</span>
+  <span id="active-info" style="color: var(--dim);"></span>
+</div>
+
+<div id="replay-bar">
+  <button id="btn-prev" title="Previous">&#9664;&#9664;</button>
+  <button id="btn-play" title="Play/Pause">&#9654;</button>
+  <button id="btn-next" title="Next">&#9654;&#9654;</button>
+  <input type="range" id="replay-slider" min="0" max="0" value="0">
+  <span id="replay-counter">0 / 0</span>
+  <button id="btn-live" class="active">LIVE</button>
+</div>
+
+<div id="main">
+  <div id="scorecard-panel">
+    <table id="scorecard-table">
+      <thead><tr id="sc-header"></tr></thead>
+      <tbody id="sc-body"></tbody>
+    </table>
+  </div>
+
+  <div id="sidebar">
+    <div id="dice-panel">
+      <h3>CURRENT DICE</h3>
+      <div id="dice-area"></div>
+    </div>
+
+    <div id="score-bar-panel">
+      <h3>SCORE TOTALS</h3>
+      <div id="score-bars"></div>
+    </div>
+
+    <div id="match-panel" style="display:none;">
+      <h3>MATCH SCORES</h3>
+      <div id="match-scores"></div>
+    </div>
+
+    <div id="commentary-panel">
+      <h3>COMMENTARY</h3>
+      <div id="commentary-feed"></div>
+    </div>
+  </div>
+</div>
+
+<div id="reasoning-panel">
+  <h3>REASONING</h3>
+  <div id="reasoning-text"></div>
+</div>
+
+<script>
+const PLAYER_COLORS = ['pa','pb','pc','pd','pe','pf','pg','ph','pi','pj'];
+const UPPER = ['ones','twos','threes','fours','fives','sixes'];
+const LOWER = ['three_of_a_kind','four_of_a_kind','full_house','small_straight','large_straight','yahtzee','chance'];
+const ALL_CATS = UPPER.concat(LOWER);
+const CAT_LABELS = {
+  ones:'Ones', twos:'Twos', threes:'Threes', fours:'Fours', fives:'Fives', sixes:'Sixes',
+  three_of_a_kind:'3 of a Kind', four_of_a_kind:'4 of a Kind', full_house:'Full House',
+  small_straight:'Sm Straight', large_straight:'Lg Straight', yahtzee:'Yahtzee', chance:'Chance'
+};
+const MAX_SCORE = 400;
+
+let entries = [];
+let replayIdx = -1;
+let isLive = true;
+let isReplaying = false;
+let replayTimer = null;
+let playerIds = [];
+let playerLabels = {};
+
+function initPlayers(snap) {
+  if (playerIds.length > 0) return;
+  playerIds = Object.keys(snap.scorecards || {});
+  playerIds.forEach((pid, i) => {
+    playerLabels[pid] = String.fromCharCode(65 + i);
+  });
+  buildScorecard();
+  buildDiceArea();
+  buildScoreBars();
+}
+
+function buildScorecard() {
+  const hdr = document.getElementById('sc-header');
+  hdr.innerHTML = '<th class="cat-col">Category</th>';
+  playerIds.forEach((pid, i) => {
+    const th = document.createElement('th');
+    th.textContent = playerLabels[pid];
+    th.style.color = `var(--${PLAYER_COLORS[i]})`;
+    th.dataset.pid = pid;
+    hdr.appendChild(th);
+  });
+
+  const body = document.getElementById('sc-body');
+  body.innerHTML = '';
+
+  // Upper section header
+  addSectionRow(body, 'UPPER SECTION');
+  UPPER.forEach(cat => addCatRow(body, cat));
+  addSpecialRow(body, '_upper_subtotal', 'Upper Subtotal');
+  addSpecialRow(body, '_upper_bonus', 'Bonus (63+)', true);
+
+  // Lower section header
+  addSectionRow(body, 'LOWER SECTION');
+  LOWER.forEach(cat => addCatRow(body, cat));
+  addSpecialRow(body, '_yahtzee_bonuses', 'Yahtzee Bonus');
+
+  // Total
+  addTotalRow(body);
+}
+
+function addSectionRow(body, label) {
+  const tr = document.createElement('tr');
+  const td = document.createElement('td');
+  td.className = 'section-header';
+  td.colSpan = playerIds.length + 1;
+  td.textContent = label;
+  tr.appendChild(td);
+  body.appendChild(tr);
+}
+
+function addCatRow(body, cat) {
+  const tr = document.createElement('tr');
+  tr.dataset.cat = cat;
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = CAT_LABELS[cat] || cat;
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.cat = cat;
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function addSpecialRow(body, key, label, isBonus) {
+  const tr = document.createElement('tr');
+  if (isBonus) tr.className = 'bonus-row';
+  tr.dataset.special = key;
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = label;
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.special = key;
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function addTotalRow(body) {
+  const tr = document.createElement('tr');
+  tr.className = 'total-row';
+  tr.dataset.special = '_total';
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = 'TOTAL';
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.special = '_total';
+    cell.style.fontWeight = 'bold';
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function buildDiceArea() {
+  const area = document.getElementById('dice-area');
+  area.innerHTML = '';
+  playerIds.forEach((pid, i) => {
+    const row = document.createElement('div');
+    row.className = 'dice-row';
+    row.dataset.pid = pid;
+    const lbl = document.createElement('span');
+    lbl.className = 'player-label';
+    lbl.textContent = playerLabels[pid];
+    lbl.style.color = `var(--${PLAYER_COLORS[i]})`;
+    row.appendChild(lbl);
+    for (let d = 0; d < 5; d++) {
+      const die = document.createElement('div');
+      die.className = 'die';
+      die.dataset.idx = d;
+      row.appendChild(die);
+    }
+    area.appendChild(row);
+  });
+}
+
+function buildScoreBars() {
+  const container = document.getElementById('score-bars');
+  container.innerHTML = '';
+  playerIds.forEach((pid, i) => {
+    const row = document.createElement('div');
+    row.className = 'score-bar-row';
+    row.innerHTML = `
+      <span class="score-bar-label" style="color:var(--${PLAYER_COLORS[i]})">${playerLabels[pid]}</span>
+      <div class="score-bar-track">
+        <div class="score-bar-fill" data-pid="${pid}" style="background:var(--${PLAYER_COLORS[i]});width:0%"></div>
+      </div>
+      <span class="score-bar-value" data-pid="${pid}">0</span>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function renderState(snap) {
+  if (!snap) return;
+  initPlayers(snap);
+
+  const activePid = snap.active_player;
+
+  // Header
+  document.getElementById('round-badge').textContent = `Round ${snap.round || 0}/${snap.total_rounds || 13}`;
+  const gpMatch = snap.games_per_match || 1;
+  document.getElementById('game-badge').textContent = gpMatch > 1 ? `Game ${snap.game_number}/${gpMatch}` : '';
+  document.getElementById('game-badge').style.display = gpMatch > 1 ? '' : 'none';
+
+  if (activePid && !snap.terminal) {
+    const pi = playerIds.indexOf(activePid);
+    const lbl = playerLabels[activePid] || '?';
+    document.getElementById('active-info').innerHTML =
+      `<span style="color:var(--${PLAYER_COLORS[pi]})">Player ${lbl}</span> — Roll ${snap.roll_number || 1} of 3`;
+  } else if (snap.terminal) {
+    document.getElementById('active-info').textContent = 'GAME OVER';
+  }
+
+  // Update scorecard
+  const scorecards = snap.scorecards || {};
+  const potential = snap.potential_scores || {};
+  const roundDec = snap.round_decisions || {};
+
+  playerIds.forEach((pid, i) => {
+    const sc = scorecards[pid] || {};
+    const pot = potential[pid] || {};
+    const isActive = pid === activePid;
+
+    ALL_CATS.forEach(cat => {
+      const cell = document.querySelector(`td[data-pid="${pid}"][data-cat="${cat}"]`);
+      if (!cell) return;
+      cell.className = isActive ? 'active-col' : '';
+
+      const val = sc[cat];
+      if (val !== null && val !== undefined) {
+        cell.textContent = val;
+        // Check if this was just scored this round
+        const dec = roundDec[pid];
+        if (dec && dec.category === cat) {
+          cell.className += ' just-scored';
+        } else if (val === 0) {
+          cell.className += ' scored-zero';
+        } else {
+          cell.className += ' scored';
+        }
+      } else if (isActive && pot[cat] !== undefined) {
+        cell.textContent = pot[cat];
+        cell.className += ' potential';
+      } else {
+        cell.textContent = '';
+      }
+    });
+
+    // Special rows
+    ['_upper_subtotal', '_upper_bonus', '_yahtzee_bonuses', '_total'].forEach(key => {
+      const cell = document.querySelector(`td[data-pid="${pid}"][data-special="${key}"]`);
+      if (!cell) return;
+      const val = sc[key];
+      cell.className = isActive ? 'active-col' : '';
+      if (key === '_yahtzee_bonuses') {
+        cell.textContent = val ? `+${val * 100}` : '';
+      } else if (val !== undefined && val !== null) {
+        cell.textContent = val;
+      } else {
+        cell.textContent = '';
+      }
+    });
+  });
+
+  // Update dice
+  const dice = snap.dice || {};
+  playerIds.forEach((pid, i) => {
+    const row = document.querySelector(`.dice-row[data-pid="${pid}"]`);
+    if (!row) return;
+    const dies = row.querySelectorAll('.die');
+    const pDice = dice[pid] || [];
+    const isActive = pid === activePid;
+    dies.forEach((die, d) => {
+      die.textContent = pDice[d] || '';
+      die.className = 'die' + (isActive ? ' active' : '');
+      die.style.color = `var(--${PLAYER_COLORS[i]})`;
+    });
+  });
+
+  // Score bars
+  playerIds.forEach(pid => {
+    const sc = scorecards[pid] || {};
+    const total = sc._total || 0;
+    const pct = Math.min(100, (total / MAX_SCORE) * 100);
+    const fill = document.querySelector(`.score-bar-fill[data-pid="${pid}"]`);
+    const val = document.querySelector(`.score-bar-value[data-pid="${pid}"]`);
+    if (fill) fill.style.width = pct + '%';
+    if (val) val.textContent = total;
+  });
+
+  // Match scores
+  const ms = snap.match_scores || {};
+  const hasMatch = Object.values(ms).some(v => v > 0);
+  const mPanel = document.getElementById('match-panel');
+  if (hasMatch) {
+    mPanel.style.display = '';
+    const mDiv = document.getElementById('match-scores');
+    mDiv.innerHTML = playerIds.map((pid, i) =>
+      `<span style="color:var(--${PLAYER_COLORS[i]})">${playerLabels[pid]}: ${(ms[pid]||0).toFixed(1)}</span>`
+    ).join(' &nbsp; ');
+  }
+
+  // Commentary
+  const comments = snap.commentary || [];
+  const feed = document.getElementById('commentary-feed');
+  feed.innerHTML = '';
+  comments.slice(-15).reverse().forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'commentary-entry';
+    const pi = playerIds.indexOf(c.player);
+    const color = PLAYER_COLORS[pi] || 'dim';
+    if (c.event === 'scored') {
+      div.innerHTML = `<span class="round-tag">R${c.round}</span> <span style="color:var(--${color})">${c.label}</span> scored <b>${c.points}</b> in ${CAT_LABELS[c.category] || c.category} (total: ${c.total})`;
+    } else if (c.event === 'yahtzee_bonus') {
+      div.innerHTML = `<span class="round-tag">R${c.round}</span> <span style="color:var(--${color})">${c.label}</span> <span style="color:var(--gold)">YAHTZEE BONUS! +100</span>`;
+    } else if (c.event === 'game_end') {
+      div.innerHTML = `<span class="round-tag">END</span> <span style="color:var(--${color})">${c.label}</span> final: ${c.game_total} (match: ${(c.match_score||0).toFixed(1)})`;
+    }
+    feed.appendChild(div);
+  });
+}
+
+function renderReasoning(entry) {
+  const panel = document.getElementById('reasoning-panel');
+  const text = entry.reasoning_output || (entry.parsed_action && entry.parsed_action.reasoning) || '';
+  if (text) {
+    panel.style.display = '';
+    const pi = playerIds.indexOf(entry.player_id);
+    const color = PLAYER_COLORS[pi] || 'dim';
+    const lbl = playerLabels[entry.player_id] || '?';
+    document.getElementById('reasoning-text').innerHTML =
+      `<span style="color:var(--${color})">${lbl}:</span> ${text.replace(/</g,'&lt;')}`;
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+// ── Replay controls ──
+
+const slider = document.getElementById('replay-slider');
+const counter = document.getElementById('replay-counter');
+const btnPrev = document.getElementById('btn-prev');
+const btnPlay = document.getElementById('btn-play');
+const btnNext = document.getElementById('btn-next');
+const btnLive = document.getElementById('btn-live');
+
+function goToEntry(idx) {
+  if (idx < 0) idx = 0;
+  if (idx >= entries.length) idx = entries.length - 1;
+  replayIdx = idx;
+  slider.value = idx;
+  counter.textContent = `${idx + 1} / ${entries.length}`;
+  const e = entries[idx];
+  renderState(e.state_snapshot);
+  renderReasoning(e);
+}
+
+function goLive() {
+  isLive = true;
+  isReplaying = false;
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  btnLive.classList.add('active');
+  btnPlay.textContent = '\u25B6';
+  if (entries.length > 0) goToEntry(entries.length - 1);
+}
+
+function exitLive() {
+  isLive = false;
+  btnLive.classList.remove('active');
+}
+
+slider.addEventListener('input', () => {
+  exitLive();
+  goToEntry(parseInt(slider.value));
+});
+btnPrev.addEventListener('click', () => {
+  exitLive();
+  goToEntry(replayIdx - 1);
+});
+btnNext.addEventListener('click', () => {
+  exitLive();
+  goToEntry(replayIdx + 1);
+});
+btnLive.addEventListener('click', goLive);
+btnPlay.addEventListener('click', () => {
+  if (isReplaying) {
+    isReplaying = false;
+    if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+    btnPlay.textContent = '\u25B6';
+  } else {
+    exitLive();
+    isReplaying = true;
+    btnPlay.textContent = '\u23F8';
+    if (replayIdx >= entries.length - 1) replayIdx = -1;
+    replayTimer = setInterval(() => {
+      if (replayIdx >= entries.length - 1) {
+        isReplaying = false;
+        clearInterval(replayTimer);
+        replayTimer = null;
+        btnPlay.textContent = '\u25B6';
+        return;
+      }
+      goToEntry(replayIdx + 1);
+    }, 800);
+  }
+});
+
+// ── SSE connection ──
+
+const evtSource = new EventSource('/events');
+evtSource.onmessage = (event) => {
+  try {
+    const data = JSON.parse(event.data);
+    entries.push(data);
+    slider.max = entries.length - 1;
+    if (isLive) goToEntry(entries.length - 1);
+  } catch(e) {}
+};
+evtSource.onerror = () => {
+  setTimeout(() => location.reload(), 3000);
+};
+</script>
+</body>
+</html>"""
+
+
 # ── Bracket HTML/CSS/JS ───────────────────────────────────────────
 
 BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
@@ -8709,7 +9516,7 @@ def main():
             "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE,
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
             "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
-            "multi": MULTI_EVENT_HTML_PAGE,
+            "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
@@ -8724,10 +9531,10 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice"}.get(event_type, event_type)
+        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "yahtzee": "Yahtzee"}.get(event_type, event_type)
         print(f"{label} Web Spectator")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")

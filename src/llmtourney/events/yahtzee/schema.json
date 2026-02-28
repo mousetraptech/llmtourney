@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Yahtzee Action",
+  "oneOf": [
+    {
+      "title": "Reroll",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "reroll" },
+        "keep": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 4 },
+          "maxItems": 5
+        },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "keep"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Score",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "score" },
+        "category": { "type": "string" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "category"],
+      "additionalProperties": false
+    }
+  ]
+}
