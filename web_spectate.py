@@ -6967,6 +6967,10 @@ function processEvent(data) {
   if (snap.dice_counts && !_playersInitialized) initPlayers(snap.dice_counts);
   if (pid && mid) S.models[pid] = mid;
 
+  // Populate all player models from snapshot (available from first turn)
+  var pm2 = snap.player_models || {};
+  Object.keys(pm2).forEach(function(k) { if (!S.models[k]) S.models[k] = pm2[k]; });
+
   // Shot clock
   if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
   if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
