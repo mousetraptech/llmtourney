@@ -5,7 +5,7 @@ tournament:
   version: "2.0.0"
 
 # ── S2 Heavyweight League ───────────────────────────────────────
-# 9-seat multiplayer league. Four events. Five fixtures each.
+# 8-seat multiplayer league. Four events. Five fixtures each.
 # The flagships. Every turn costs real money. Make it count.
 # Sonnet promoted from midtier. Maverick stays here only (no dual-listing).
 
@@ -53,14 +53,6 @@ models:
   o4-mini:
     provider: openrouter
     model_id: openai/o4-mini
-    api_key_env: OPENROUTER_API_KEY
-    temperature: 0.0
-    max_output_tokens: 2048
-    timeout_s: 120.0
-
-  nemotron-ultra:
-    provider: openrouter
-    model_id: nvidia/nemotron-ultra
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
     max_output_tokens: 2048
