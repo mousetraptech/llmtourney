@@ -5,7 +5,7 @@ tournament:
   version: "2.0.0"
 
 # ── S2 Heavyweight League ───────────────────────────────────────
-# 8-seat multiplayer league. Four events. Five fixtures each.
+# 8-seat multiplayer league. Four events. Variable fixture counts.
 # The flagships. Every turn costs real money. Make it count.
 # Sonnet promoted from midtier. Maverick stays here only (no dual-listing).
 
@@ -85,12 +85,12 @@ events:
       35: [4, 8]
       50: [8, 16]
       65: [16, 32]
-    rounds: 5
+    rounds: 1
 
   bullshit:
     weight: 1
-    games_per_match: 5
-    rounds: 5
+    games_per_match: 1
+    rounds: 1
 
   liarsdice:
     weight: 1
