@@ -13,8 +13,11 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import traceback
 import uuid
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
@@ -199,6 +202,12 @@ class LeagueRunner:
         self.engine = TournamentEngine(config)
         self.model_names = list(config.models.keys())
         self.manifest_path = self.engine.telemetry_dir / f"league-{config.name}.json"
+        self._manifest_lock = threading.Lock()
+
+        # One engine per event for thread safety
+        self._engines: dict[str, TournamentEngine] = {}
+        for event_name in config.events:
+            self._engines[event_name] = TournamentEngine(config)
 
         # Load existing or generate fresh fixtures
         self.fixtures: list[Fixture] = []
@@ -208,7 +217,7 @@ class LeagueRunner:
             self.fixtures = self._generate_fixtures()
 
     def run(self) -> dict:
-        """Execute all pending fixtures and return the manifest."""
+        """Execute all pending fixtures, parallelized by event."""
         total = len(self.fixtures)
         completed = sum(1 for f in self.fixtures if f.status == "complete")
         pending = sum(1 for f in self.fixtures if f.status == "pending")
@@ -225,26 +234,65 @@ class LeagueRunner:
         # Write initial manifest
         self._write_manifest()
 
-        for i, fix in enumerate(self.fixtures):
+        # Group pending fixtures by event
+        by_event: dict[str, list[Fixture]] = defaultdict(list)
+        for fix in self.fixtures:
+            if fix.status not in ("complete", "error"):
+                by_event[fix.event].append(fix)
+
+        event_names = list(by_event.keys())
+        print(f"Running {len(event_names)} events in parallel: {', '.join(event_names)}")
+        print()
+
+        # Run each event's fixtures in a separate thread
+        with ThreadPoolExecutor(max_workers=len(event_names)) as pool:
+            futures = {
+                pool.submit(self._run_event_fixtures, event, fixtures): event
+                for event, fixtures in by_event.items()
+            }
+            for future in as_completed(futures):
+                event = futures[future]
+                try:
+                    future.result()
+                    print(f"\n{'='*40} {event.upper()} COMPLETE {'='*40}\n")
+                except Exception as exc:
+                    print(f"\n{event} thread failed: {exc}")
+                    traceback.print_exc()
+
+        self.print_standings()
+        return self._build_manifest()
+
+    def _run_event_fixtures(self, event: str, fixtures: list[Fixture]) -> None:
+        """Run all fixtures for a single event (called from thread)."""
+        engine = self._engines[event]
+        total_event = len(fixtures)
+
+        for i, fix in enumerate(fixtures):
             if fix.status in ("complete", "error"):
                 continue
 
             is_mp = fix.event in _MULTIPLAYER_EVENTS and len(fix.models) > 2
-            models_str = " vs ".join(fix.models) if len(fix.models) <= 4 else f"{len(fix.models)} models"
-            print(f"[{i+1}/{total}] {fix.event}: {models_str}")
+            models_str = (
+                " vs ".join(fix.models) if len(fix.models) <= 4
+                else f"{len(fix.models)} models"
+            )
+            print(f"[{fix.event} {i+1}/{total_event}] {models_str}")
 
             fix.status = "in_progress"
-            fix.match_id = f"{fix.event}-{'-vs-'.join(fix.models[:2])}-{uuid.uuid4().hex[:6]}"
-            self._write_manifest()
+            fix.match_id = (
+                f"{fix.event}-{'-vs-'.join(fix.models[:2])}-{uuid.uuid4().hex[:6]}"
+            )
+            with self._manifest_lock:
+                self._write_manifest()
 
             try:
                 event_cfg = self.config.events[fix.event]
                 if is_mp:
-                    result = self.engine._run_multiplayer_match(
+                    result = engine._run_multiplayer_match(
                         fix.event, event_cfg, fix.models, match_id=fix.match_id,
                     )
                 else:
-                    result = self.engine._run_match(
+                    result = engine._run_match(
                         fix.event, event_cfg, fix.models[0], fix.models[1],
                         match_id=fix.match_id,
                     )
@@ -254,27 +302,22 @@ class LeagueRunner:
                 fix.player_models = result.player_models
                 fix.fidelity = result.fidelity
 
-                # Print result summary
                 ranked = sorted(
                     result.scores.items(),
                     key=lambda x: x[1],
                     reverse=True,
                 )
-                for pid, sc in ranked:
-                    print(f"  {result.player_models[pid]:20s} {sc:>6.1f}")
-                print()
+                lines = [f"  {result.player_models[pid]:20s} {sc:>6.1f}" for pid, sc in ranked]
+                print(f"[{fix.event} {i+1}/{total_event}] DONE\n" + "\n".join(lines))
 
             except Exception as exc:
                 fix.status = "error"
                 fix.error = str(exc)
-                print(f"  ERROR: {exc}")
+                print(f"[{fix.event} {i+1}/{total_event}] ERROR: {exc}")
                 traceback.print_exc()
-                print()
 
-            self._write_manifest()
-
-        self.print_standings()
-        return self._build_manifest()
+            with self._manifest_lock:
+                self._write_manifest()
 
     # ── Fixture generation ───────────────────────────────────────
 

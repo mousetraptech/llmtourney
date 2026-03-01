@@ -243,6 +243,22 @@ class BullshitEvent(MultiplayerSeriesEvent):
         else:
             self.apply_action(player_id, {"action": "pass"})
 
+    def eliminate_player(self, player_id: str) -> None:
+        """Called by tournament engine for forfeit/stuck-loop elimination."""
+        if player_id not in self._eliminated:
+            self._eliminated.add(player_id)
+            # Give their remaining cards to the discard pile
+            self._discard_pile.extend(self._hands[player_id])
+            self._hands[player_id] = []
+            # Don't add to finish_order — they get ranked last
+            # Check if game should end (<=2 active)
+            active = [p for p in self._player_ids if p not in self._eliminated]
+            if len(active) <= 2:
+                active.sort(key=lambda p: len(self._hands[p]))
+                for p in active:
+                    self._finish_order.append(p)
+                self._finish_game()
+
     def get_state_snapshot(self) -> dict:
         return {
             "game_number": self._game_number,
