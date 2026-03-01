@@ -92,6 +92,38 @@ class MongoSink:
     # Public API
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _infer_event_from_match_id(match_id: str) -> str:
+        """Extract event type from match_id prefix (e.g. 'holdem-...' → 'holdem')."""
+        _known = {
+            "bullshit", "holdem", "liarsdice", "rollerderby",
+            "connectfour", "checkers", "reversi", "scrabble",
+            "tictactoe", "yahtzee",
+        }
+        prefix = match_id.split("-")[0]
+        return prefix if prefix in _known else "unknown"
+
+    @staticmethod
+    def _infer_tier(tournament_name: str) -> str:
+        """Infer tier from tournament name (e.g. 's2-league-bantam' → 'bantam')."""
+        if not tournament_name or tournament_name == "unknown":
+            return "unknown"
+        parts = tournament_name.rsplit("-", 1)
+        return parts[-1] if len(parts) > 1 else "unknown"
+
+    def _resolve_context(self, match_id: str, tournament_context: dict) -> dict:
+        """Fill in missing tournament_context fields from match_id inference."""
+        event_type = tournament_context.get("event_type") or self._infer_event_from_match_id(match_id)
+        tournament_name = tournament_context.get("tournament_name") or "unknown"
+        tier = tournament_context.get("tier") or self._infer_tier(tournament_name)
+        round_num = tournament_context.get("round", 0)
+        return {
+            "event_type": event_type,
+            "tournament_name": tournament_name,
+            "tier": tier,
+            "round": round_num,
+        }
+
     def log_turn(
         self,
         match_id: str,
@@ -112,11 +144,12 @@ class MongoSink:
         doc["model_id"] = normalize(doc.get("model_id", ""))
         doc["model_version"] = normalize(doc.get("model_version", ""))
 
-        # Denormalize tournament context
-        doc["event_type"] = tournament_context.get("event_type")
-        doc["tournament_name"] = tournament_context.get("tournament_name")
-        doc["tier"] = tournament_context.get("tier")
-        doc["round"] = tournament_context.get("round")
+        # Denormalize tournament context with fallback inference
+        ctx = self._resolve_context(match_id, tournament_context)
+        doc["event_type"] = ctx["event_type"]
+        doc["tournament_name"] = ctx["tournament_name"]
+        doc["tier"] = ctx["tier"]
+        doc["round"] = ctx["round"]
 
         # Handle prompt based on store_prompts flag
         if not self._store_prompts:
@@ -146,6 +179,8 @@ class MongoSink:
         # Derive winner
         winner = self._derive_winner(scores, player_models)
 
+        ctx = self._resolve_context(match_id, tournament_context)
+
         match_doc: dict[str, Any] = {
             "match_id": match_id,
             "schema_version": _SCHEMA_VERSION,
@@ -154,10 +189,10 @@ class MongoSink:
             "player_models": player_models,
             "models": list(player_models.values()),
             "winner": winner,
-            "event_type": tournament_context.get("event_type"),
-            "tournament_name": tournament_context.get("tournament_name"),
-            "tier": tournament_context.get("tier"),
-            "round": tournament_context.get("round"),
+            "event_type": ctx["event_type"],
+            "tournament_name": ctx["tournament_name"],
+            "tier": ctx["tier"],
+            "round": ctx["round"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "_ingested_at": datetime.now(timezone.utc),
         }
@@ -172,7 +207,7 @@ class MongoSink:
             is_draw = winner is None
             player_fidelity = fidelity.get(player_id, {})
             violations = player_fidelity.get("total_violations", 0)
-            event_type = tournament_context.get("event_type", "unknown")
+            event_type = ctx["event_type"]
 
             stat_update: dict[str, Any] = {
                 "filter": {"_id": model_id},

@@ -21,7 +21,7 @@ This skill helps Claude query, analyze, and visualize tournament data.
 - **MongoDB**: `mongodb://localhost:27017`, database: `llmtourney`
 - **Collections**: `models`, `matches`, `turns`
 - **Source code**: `~/projects/play-games/llmtourney`
-- **Spectator UI**: `http://localhost:8080` (when running)
+- **Spectator UI**: `http://localhost:8800` (when running)
 - **Config files**: `~/projects/play-games/llmtourney/configs/*.yaml`
 
 ## Games
@@ -319,7 +319,7 @@ When building React dashboards or artifacts from tourney data:
 - For game-specific comparisons, normalize differently: win rate for binary games, average score for continuous games
 - Violation data works well as stacked bar charts (violation type breakdown per model)
 - Head-to-head records work well as matrix/heatmap visualizations
-- The spectator UI at localhost:8080 shows live matches — reference it for real-time viewing
+- The spectator UI at localhost:8800 shows live matches — reference it for real-time viewing
 
 ## Source Code Reference
 

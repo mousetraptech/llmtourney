@@ -5,7 +5,7 @@ Usage:
     python web_spectate.py <jsonl_file_or_match_id>
     python web_spectate.py                              # Auto-discover latest
 
-Opens http://127.0.0.1:8080 with a live-updating board.
+Opens http://127.0.0.1:8800 with a live-updating board.
 Zero external dependencies — stdlib only.
 """
 
@@ -17,7 +17,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 TELEMETRY_DIR = Path("output/telemetry")
-PORT = 8080
+PORT = 8800
 
 
 def discover_latest_match() -> Path | None:

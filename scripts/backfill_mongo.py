@@ -375,11 +375,18 @@ def fix_existing_metadata(
     dry_run: bool = False,
     tournament_name: str | None = None,
     tier: str | None = None,
+    event_filter: list[str] | None = None,
 ) -> None:
     """Update event_type/tier/tournament_name on existing MongoDB records.
 
     Parses event_type from match_id prefix for all records where it's
-    'unknown' or null. Applies CLI overrides for tier/tournament_name.
+    'unknown' or null. Applies CLI overrides for tier/tournament_name,
+    scoped to --event-filter if provided.
+
+    Args:
+        event_filter: Only apply tournament_name/tier overrides to records
+            whose event_type matches this list (e.g. ["holdem", "bullshit"]).
+            event_type is always fixed from match_id regardless of filter.
     """
     from pymongo import MongoClient
 
@@ -389,29 +396,42 @@ def fix_existing_metadata(
     db = client[_DB_NAME]
     print(f"Connected to MongoDB at {uri}")
 
+    if event_filter:
+        print(f"Scoping tournament_name/tier overrides to events: {event_filter}")
+
+    def _should_apply_overrides(event_type: str) -> bool:
+        """Check if tournament_name/tier overrides should apply to this event."""
+        if not event_filter:
+            return True
+        return event_type in event_filter
+
     # Fix matches collection
     matches_fixed = 0
     for doc in db["matches"].find():
         updates: dict[str, Any] = {}
         mid = doc.get("match_id", "")
 
-        # Fix event_type
-        if not doc.get("event_type") or doc["event_type"] == "unknown":
+        # Always fix event_type from match_id (authoritative)
+        current_event = doc.get("event_type", "unknown")
+        if not current_event or current_event == "unknown":
             parsed = _parse_event_from_match_id(mid)
             if parsed != "unknown":
                 updates["event_type"] = parsed
+                current_event = parsed
 
-        # Fix tournament_name
-        if tournament_name and (not doc.get("tournament_name") or doc["tournament_name"] == "unknown"):
-            updates["tournament_name"] = tournament_name
+        # Fix tournament_name — only if event matches filter
+        if tournament_name and _should_apply_overrides(current_event):
+            if not doc.get("tournament_name") or doc["tournament_name"] == "unknown":
+                updates["tournament_name"] = tournament_name
 
-        # Fix tier
-        resolved_tier = tier
-        if not resolved_tier:
-            tname = updates.get("tournament_name") or doc.get("tournament_name", "")
-            resolved_tier = _infer_tier_from_name(tname)
-        if resolved_tier != "unknown" and (not doc.get("tier") or doc["tier"] == "unknown"):
-            updates["tier"] = resolved_tier
+        # Fix tier — only if event matches filter
+        if _should_apply_overrides(current_event):
+            resolved_tier = tier
+            if not resolved_tier:
+                tname = updates.get("tournament_name") or doc.get("tournament_name", "")
+                resolved_tier = _infer_tier_from_name(tname)
+            if resolved_tier != "unknown" and (not doc.get("tier") or doc["tier"] == "unknown"):
+                updates["tier"] = resolved_tier
 
         if updates:
             if dry_run:
@@ -422,7 +442,6 @@ def fix_existing_metadata(
 
     # Fix turns collection
     turns_fixed = 0
-    # Use bulk update by match_id groups for efficiency
     match_ids = db["turns"].distinct("match_id")
     for mid in match_ids:
         sample = db["turns"].find_one({"match_id": mid})
@@ -431,20 +450,24 @@ def fix_existing_metadata(
 
         updates: dict[str, Any] = {}
 
-        if not sample.get("event_type") or sample["event_type"] == "unknown":
+        current_event = sample.get("event_type", "unknown")
+        if not current_event or current_event == "unknown":
             parsed = _parse_event_from_match_id(mid)
             if parsed != "unknown":
                 updates["event_type"] = parsed
+                current_event = parsed
 
-        if tournament_name and (not sample.get("tournament_name") or sample["tournament_name"] == "unknown"):
-            updates["tournament_name"] = tournament_name
+        if tournament_name and _should_apply_overrides(current_event):
+            if not sample.get("tournament_name") or sample["tournament_name"] == "unknown":
+                updates["tournament_name"] = tournament_name
 
-        resolved_tier = tier
-        if not resolved_tier:
-            tname = updates.get("tournament_name") or sample.get("tournament_name", "")
-            resolved_tier = _infer_tier_from_name(tname)
-        if resolved_tier != "unknown" and (not sample.get("tier") or sample["tier"] == "unknown"):
-            updates["tier"] = resolved_tier
+        if _should_apply_overrides(current_event):
+            resolved_tier = tier
+            if not resolved_tier:
+                tname = updates.get("tournament_name") or sample.get("tournament_name", "")
+                resolved_tier = _infer_tier_from_name(tname)
+            if resolved_tier != "unknown" and (not sample.get("tier") or sample["tier"] == "unknown"):
+                updates["tier"] = resolved_tier
 
         if updates:
             if dry_run:
@@ -510,13 +533,23 @@ def main() -> None:
         "--tier", default=None,
         help="Set tier on records where it's unknown.",
     )
+    fix_parser.add_argument(
+        "--event-filter", default=None,
+        help="Comma-separated event types to scope tournament_name/tier overrides "
+             "(e.g. 'holdem,bullshit,liarsdice,rollerderby'). "
+             "event_type is always fixed from match_id regardless of filter.",
+    )
 
     args = parser.parse_args()
 
     if args.command == "fix":
+        event_filter = None
+        if args.event_filter:
+            event_filter = [e.strip() for e in args.event_filter.split(",")]
         fix_existing_metadata(
             uri=args.uri, dry_run=args.dry_run,
             tournament_name=args.tournament_name, tier=args.tier,
+            event_filter=event_filter,
         )
     elif args.command == "backfill":
         run_backfill(
