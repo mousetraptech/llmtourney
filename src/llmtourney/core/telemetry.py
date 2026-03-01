@@ -86,6 +86,10 @@ class TelemetryLogger:
             "fidelity_report": fidelity,
             "engine_version": llmtourney.__version__,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event": self._tournament_context.get("event_type"),
+            "tournament_name": self._tournament_context.get("tournament_name"),
+            "tier": self._tournament_context.get("tier"),
+            "round": self._tournament_context.get("round"),
         }
         if extra:
             record.update(extra)

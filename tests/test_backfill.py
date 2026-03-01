@@ -194,7 +194,7 @@ class TestMissingContextDefaults:
         turns, summary = parse_jsonl_file(f)
         assert summary is not None
 
-        match_doc = _build_match_doc(summary)
+        match_doc = _build_match_doc(summary, "unknown", "unknown", "unknown", 0)
 
         # Missing fields should get defaults
         assert match_doc["tournament_name"] == "unknown"
@@ -216,7 +216,7 @@ class TestMissingContextDefaults:
         _, summary = parse_jsonl_file(f)
         assert summary is not None
 
-        match_doc = _build_match_doc(summary)
+        match_doc = _build_match_doc(summary, "unknown", "season-1", "midtier", 2)
         assert match_doc["tournament_name"] == "season-1"
         assert match_doc["tier"] == "midtier"
         assert match_doc["round"] == 2
@@ -234,7 +234,7 @@ class TestWinnerDerivation:
             scores={"player_a": 10, "player_b": 5},
             player_models={"player_a": "gpt-4o", "player_b": "sonnet"},
         ))
-        doc = _build_match_doc(summary)
+        doc = _build_match_doc(summary, "unknown", "unknown", "unknown", 0)
         assert doc["winner"] == "gpt-4o"
 
     def test_tie(self, tmp_path):
@@ -244,7 +244,7 @@ class TestWinnerDerivation:
             scores={"player_a": 10, "player_b": 10},
             player_models={"player_a": "gpt-4o", "player_b": "sonnet"},
         ))
-        doc = _build_match_doc(summary)
+        doc = _build_match_doc(summary, "unknown", "unknown", "unknown", 0)
         assert doc["winner"] is None
 
 
@@ -257,7 +257,7 @@ class TestEventTypeDerivation:
         from scripts.backfill_mongo import _build_match_doc
 
         summary = json.loads(_summary_line(event="reversi"))
-        doc = _build_match_doc(summary)
+        doc = _build_match_doc(summary, "reversi", "unknown", "unknown", 0)
         assert doc["event_type"] == "reversi"
 
     def test_event_type_defaults_unknown(self):
@@ -265,7 +265,7 @@ class TestEventTypeDerivation:
 
         summary = json.loads(_summary_line())
         summary.pop("event", None)
-        doc = _build_match_doc(summary)
+        doc = _build_match_doc(summary, "unknown", "unknown", "unknown", 0)
         assert doc["event_type"] == "unknown"
 
 

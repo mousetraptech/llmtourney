@@ -301,6 +301,14 @@ class TournamentEngine:
     # Internal: match execution
     # ------------------------------------------------------------------
 
+    def _infer_tier(self) -> str:
+        """Derive tier from config: explicit field, or last segment of name."""
+        if self.config.tier:
+            return self.config.tier
+        # "s2-league-bantam" → "bantam"
+        parts = self.config.name.rsplit("-", 1)
+        return parts[-1] if len(parts) > 1 else "unknown"
+
     def _run_match(
         self,
         event_name: str,
@@ -308,10 +316,12 @@ class TournamentEngine:
         model_a: str,
         model_b: str,
         match_id: str | None = None,
+        round_number: int = 0,
     ) -> MatchResult:
         """Execute a single match between two models."""
         return self._run_multiplayer_match(
             event_name, event_cfg, [model_a, model_b], match_id=match_id,
+            round_number=round_number,
         )
 
     def _run_multiplayer_match(
@@ -321,6 +331,7 @@ class TournamentEngine:
         models: list[str],
         match_id: str | None = None,
         resume_state: dict | None = None,
+        round_number: int = 0,
     ) -> MatchResult:
         """Execute a match with N players.
 
@@ -365,8 +376,8 @@ class TournamentEngine:
 
         tournament_context = {
             "tournament_name": self.config.name,
-            "tier": "unknown",
-            "round": 0,
+            "tier": self._infer_tier(),
+            "round": round_number,
             "event_type": event_name,
         }
         logger = TelemetryLogger(

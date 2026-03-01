@@ -287,14 +287,21 @@ class LeagueRunner:
 
             try:
                 event_cfg = self.config.events[fix.event]
+                # Parse round number from fixture_id (e.g. "holdem-round-3")
+                round_number = 0
+                parts = fix.fixture_id.rsplit("-", 1)
+                if parts[-1].isdigit():
+                    round_number = int(parts[-1])
+
                 if is_mp:
                     result = engine._run_multiplayer_match(
                         fix.event, event_cfg, fix.models, match_id=fix.match_id,
+                        round_number=round_number,
                     )
                 else:
                     result = engine._run_match(
                         fix.event, event_cfg, fix.models[0], fix.models[1],
-                        match_id=fix.match_id,
+                        match_id=fix.match_id, round_number=round_number,
                     )
 
                 fix.status = "complete"
