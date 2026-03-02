@@ -8,7 +8,9 @@ logs telemetry, and produces aggregate standings.
 from __future__ import annotations
 
 import os
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -40,8 +42,10 @@ from llmtourney.events.reversi.engine import ReversiEvent
 from llmtourney.events.bullshit.engine import BullshitEvent
 from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 from llmtourney.events.yahtzee.engine import YahtzeeEvent
+from llmtourney.events.rollerderby.engine import RollerDerbyEvent
 
 _MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby"}
+_CONCURRENT_EVENTS = {"rollerderby"}
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -96,8 +100,17 @@ class TournamentEngine:
                     event_name in _MULTIPLAYER_EVENTS
                     and len(model_names) > 2
                 )
+                concurrent = (
+                    event_name in _CONCURRENT_EVENTS
+                    and event_cfg.mode == "concurrent"
+                )
                 for _round in range(1, event_cfg.rounds + 1):
-                    if multiplayer:
+                    if concurrent and multiplayer:
+                        result = self._run_concurrent_match(
+                            event_name, event_cfg, model_names,
+                        )
+                        matches.append(result)
+                    elif multiplayer:
                         result = self._run_multiplayer_match(
                             event_name, event_cfg, model_names,
                         )
@@ -283,7 +296,14 @@ class TournamentEngine:
                 num_players=num_players,
                 mode=event_cfg.mode,
             )
-        if event_name in ("yahtzee", "rollerderby"):
+        if event_name == "rollerderby":
+            return RollerDerbyEvent(
+                races_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+                finish_bonus=event_cfg.finish_bonus,
+                race_timeout_s=event_cfg.race_timeout_s,
+            )
+        if event_name == "yahtzee":
             return YahtzeeEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
@@ -881,6 +901,254 @@ class TournamentEngine:
             event=event_name,
             scores=scores,
             fidelity=fidelity,
+            player_models=player_models,
+        )
+
+    # ------------------------------------------------------------------
+    # Internal: concurrent match execution (Roller Derby)
+    # ------------------------------------------------------------------
+
+    def _run_concurrent_match(
+        self,
+        event_name: str,
+        event_cfg: EventConfig,
+        models: list[str],
+    ) -> MatchResult:
+        """Execute a concurrent race with all players running in parallel.
+
+        Each player gets their own thread. Prompts fire simultaneously,
+        responses processed as they arrive. Response latency is a game
+        mechanic — faster models get more turns per wall-clock second.
+        """
+        short_id = uuid.uuid4().hex[:6]
+        match_id = f"{event_name}-{'-vs-'.join(models)}-{short_id}"
+        deterministic_key = f"{event_name}-{'-vs-'.join(models)}"
+        seed = self.seed_mgr.get_match_seed(
+            event_name, 1, hash(deterministic_key) % 10000
+        )
+
+        event = self._build_event(event_name, event_cfg, num_players=len(models))
+        event.reset(seed)
+
+        player_ids = event.player_ids
+        player_models = dict(zip(player_ids, models))
+        self._current_player_models = player_models
+
+        tournament_context = {
+            "tournament_name": self.config.name,
+            "tier": self._infer_tier(),
+            "round": 0,
+            "event_type": event_name,
+            "concurrent": True,
+        }
+        logger = TelemetryLogger(
+            self.telemetry_dir, match_id,
+            mongo_sink=self._mongo_sink,
+            tournament_context=tournament_context,
+        )
+        parser = ActionParser()
+
+        # Per-player violation tracking (thread-safe via event._lock)
+        import threading
+        _turn_counter = [0]
+        _counter_lock = threading.Lock()
+        _player_strikes: dict[str, int] = {pid: 0 for pid in player_ids}
+        _player_violation_streak: dict[str, int] = {pid: 0 for pid in player_ids}
+        _last_violation_key: dict[str, str] = {}
+        match_forfeit_threshold = 3
+        if self.config.forfeit_escalation:
+            match_forfeit_threshold = self.config.forfeit_escalation.match_forfeit_threshold
+        STUCK_LOOP_LIMIT = 3
+
+        race_timeout_s = getattr(event, 'race_timeout_s', 300.0)
+
+        def _next_turn_number() -> int:
+            with _counter_lock:
+                _turn_counter[0] += 1
+                return _turn_counter[0]
+
+        def _run_player_lane(player_id: str, model_name: str) -> None:
+            """Run a single player's race loop in its own thread."""
+            adapter = self.adapters[model_name]
+            race_start = time.monotonic()
+
+            while not event.is_terminal():
+                # Check if this player is done
+                if event.player_finished(player_id):
+                    break
+
+                # Check race timeout
+                elapsed = time.monotonic() - race_start
+                if elapsed > race_timeout_s:
+                    print(f"[TIMEOUT] Race timeout for {model_name} after {elapsed:.0f}s")
+                    break
+
+                # Check if player is eliminated via strikes
+                if _player_strikes[player_id] >= match_forfeit_threshold:
+                    event.eliminate_player(player_id)
+                    print(f"[ELIMINATED] {model_name} ({_player_strikes[player_id]} strikes)")
+                    break
+
+                prompt = event.get_prompt(player_id)
+
+                # Query model
+                response, query_ok = self._safe_query(
+                    adapter, [{"role": "user", "content": prompt}], model_name, seed
+                )
+
+                turn_number = _next_turn_number()
+
+                if not query_ok:
+                    _player_strikes[player_id] += 1
+                    event.forfeit_turn(player_id)
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=event.get_state_snapshot(),
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text="",
+                        parsed=parser.parse("", event.action_schema),
+                        validation_result="forfeit",
+                        violation=ViolationKind.TIMEOUT.value,
+                        ruling="forfeit_turn",
+                    )
+                    _check_player_stuck(player_id, model_name, "timeout")
+                    continue
+
+                raw_text = response.raw_text or ""
+
+                if not raw_text.strip():
+                    _player_strikes[player_id] += 1
+                    event.forfeit_turn(player_id)
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=event.get_state_snapshot(),
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text=raw_text,
+                        parsed=parser.parse("", event.action_schema),
+                        validation_result="forfeit",
+                        violation=ViolationKind.EMPTY_RESPONSE.value,
+                        ruling="forfeit_turn",
+                    )
+                    _check_player_stuck(player_id, model_name, "empty_response")
+                    continue
+
+                raw_text = sanitize_text(raw_text)
+                parsed = parser.parse(raw_text, event.action_schema)
+
+                if not parsed.success:
+                    _player_strikes[player_id] += 1
+                    event.forfeit_turn(player_id)
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=event.get_state_snapshot(),
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text=raw_text,
+                        parsed=parsed,
+                        validation_result="forfeit",
+                        violation=ViolationKind.MALFORMED_JSON.value,
+                        ruling="forfeit_turn",
+                    )
+                    _check_player_stuck(player_id, model_name, "malformed_json")
+                    continue
+
+                validation = event.validate_action(player_id, parsed.action)
+                if not validation.legal:
+                    _player_strikes[player_id] += 1
+                    event.forfeit_turn(player_id)
+                    self._log_turn(
+                        logger,
+                        turn_number=turn_number,
+                        snapshot=event.get_state_snapshot(),
+                        player_id=player_id,
+                        response=response,
+                        prompt=prompt,
+                        raw_text=raw_text,
+                        parsed=parsed,
+                        validation_result=validation.reason or "illegal",
+                        violation=ViolationKind.ILLEGAL_MOVE.value,
+                        ruling="forfeit_turn",
+                    )
+                    _check_player_stuck(player_id, model_name, "illegal_move")
+                    continue
+
+                # Valid action — apply and log
+                _player_violation_streak[player_id] = 0
+                event.apply_action(player_id, parsed.action)
+
+                self._log_turn(
+                    logger,
+                    turn_number=turn_number,
+                    snapshot=event.get_state_snapshot(),
+                    player_id=player_id,
+                    response=response,
+                    prompt=prompt,
+                    raw_text=raw_text,
+                    parsed=parsed,
+                    validation_result="legal",
+                    violation=None,
+                    ruling=None,
+                )
+
+        def _check_player_stuck(pid: str, model_name: str, vtype: str) -> None:
+            if _last_violation_key.get(pid) == vtype:
+                _player_violation_streak[pid] += 1
+            else:
+                _player_violation_streak[pid] = 1
+                _last_violation_key[pid] = vtype
+            if _player_violation_streak[pid] >= STUCK_LOOP_LIMIT:
+                event.eliminate_player(pid)
+                print(
+                    f"[ELIMINATED] {model_name} "
+                    f"(stuck-loop: {STUCK_LOOP_LIMIT} consecutive {vtype})"
+                )
+
+        # Fire all player lanes concurrently
+        print(f"\n{'='*60}")
+        print(f"CONCURRENT RACE: {event_name} — {len(models)} racers")
+        print(f"Models: {', '.join(models)}")
+        print(f"Races: {event_cfg.games_per_match}, Timeout: {race_timeout_s}s")
+        print(f"{'='*60}\n")
+
+        with ThreadPoolExecutor(max_workers=len(models)) as executor:
+            futures = {
+                executor.submit(_run_player_lane, pid, model): (pid, model)
+                for pid, model in player_models.items()
+            }
+            for future in as_completed(futures):
+                pid, model = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f"[ERROR] {model} lane crashed: {exc}")
+                    event.eliminate_player(pid)
+
+        scores = event.get_scores()
+        logger.finalize_match(
+            scores=scores,
+            fidelity={},
+            extra={
+                "concurrent": True,
+                "event_type": event_name,
+                "player_models": dict(player_models),
+            },
+        )
+
+        print(f"\nRace complete! Scores: {dict(zip([player_models[p] for p in player_ids], [scores[p] for p in player_ids]))}\n")
+
+        return MatchResult(
+            match_id=match_id,
+            event=event_name,
+            scores=scores,
+            fidelity={},
             player_models=player_models,
         )
 

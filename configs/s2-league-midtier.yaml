@@ -2,12 +2,13 @@ tournament:
   name: "s2-league-midtier"
   seed: 2002
   format: league
-  version: "2.0.0"
+  version: "2.1.0"
 
-# ── S2 Midtier League ───────────────────────────────────────────
-# 9-seat multiplayer league. Four events. Variable fixture counts.
-# The workhorses. Strong enough to reason, cheap enough to grind.
-# Sonnet promoted to heavyweight. Command A (Cohere) fills the seat.
+# ── S2 Midtier League v2.1 ──────────────────────────────────────
+# 7-seat multiplayer league. Four events.
+# Dropped mistral-medium-3.1 and qwen3-235b (repeated DQs).
+# Liar's Dice trimmed to 1 round — elimination produces natural ranking.
+# Roller Derby: concurrent racing, 3 races, finish bonuses.
 
 models:
   gpt-4o:
@@ -58,25 +59,9 @@ models:
     max_output_tokens: 512
     timeout_s: 45.0
 
-  mistral-medium-3.1:
-    provider: openrouter
-    model_id: mistralai/mistral-medium-3.1
-    api_key_env: OPENROUTER_API_KEY
-    temperature: 0.0
-    max_output_tokens: 512
-    timeout_s: 45.0
-
   haiku-4.5:
     provider: openrouter
     model_id: anthropic/claude-haiku-4.5
-    api_key_env: OPENROUTER_API_KEY
-    temperature: 0.0
-    max_output_tokens: 512
-    timeout_s: 45.0
-
-  qwen3-235b:
-    provider: openrouter
-    model_id: qwen/qwen3-235b-a22b
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
     max_output_tokens: 512
@@ -102,14 +87,17 @@ events:
 
   liarsdice:
     weight: 1
-    games_per_match: 5
+    games_per_match: 1
     mode: redistribution
-    rounds: 5
+    rounds: 1
 
   rollerderby:
     weight: 1
     games_per_match: 3
-    rounds: 5
+    rounds: 1
+    mode: concurrent
+    finish_bonus: [3, 2, 1]
+    race_timeout_s: 300
 
 shot_clock:
   default_ms: 45000

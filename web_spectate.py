@@ -5045,10 +5045,15 @@ function renderPlayers() {
     var correct = ps.correct_calls || 0;
     var total = lies + truths;
 
+    var unnecessaryBluffs = ps.unnecessary_bluff_count || 0;
+
     var statParts = [];
     if (total > 0) {
       var liePct = Math.round(lies * 100 / total);
       statParts.push('Bluff: ' + liePct + '%');
+    }
+    if (unnecessaryBluffs > 0) {
+      statParts.push('<span style="color:var(--yellow)">Needless: ' + unnecessaryBluffs + '</span>');
     }
     if (caught > 0) statParts.push('<span class="caught">Caught: ' + caught + '</span>');
     if (calls > 0) {
@@ -5144,7 +5149,9 @@ function renderFinal() {
     var calls = ps.times_called_bs || 0;
     var correct = ps.correct_calls || 0;
     var callAcc = calls > 0 ? Math.round(correct * 100 / calls) : 0;
-    html += '<div><span class="' + clr + '">' + m + '</span>: bluff ' + liePct + '%, caught ' + caught + 'x, BS calls ' + calls + ' (' + callAcc + '% acc)</div>';
+    var needless = ps.unnecessary_bluff_count || 0;
+    var needlessStr = needless > 0 ? ', needless ' + needless : '';
+    html += '<div><span class="' + clr + '">' + m + '</span>: bluff ' + liePct + '%, caught ' + caught + 'x' + needlessStr + ', BS calls ' + calls + ' (' + callAcc + '% acc)</div>';
   });
   html += '</div>';
 
@@ -7724,6 +7731,351 @@ init();
 </html>"""
 
 
+# ── Roller Derby HTML/CSS/JS ────────────────────────────────────
+
+ROLLERDERBY_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roller Derby — LLM Tourney</title>
+<style>
+:root {
+  --bg: #0a0a0f; --surface: #14141f; --border: #2a2a3a;
+  --text: #e0e0e8; --dim: #888; --accent: #4fc3f7;
+  --green: #66bb6a; --yellow: #fdd835; --red: #ef5350;
+  --orange: #ffa726; --purple: #ab47bc; --cyan: #26c6da;
+  --blue: #42a5f5; --pink: #ec407a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background:var(--bg); color:var(--text); }
+.header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:18px; font-weight:700; }
+.header .race-info { font-size:13px; color:var(--dim); }
+.track-container { padding:20px; }
+
+/* Track visualization */
+.track { position:relative; margin:10px 0; height:52px; background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:visible; }
+.track-fill { position:absolute; top:0; left:0; height:100%; border-radius:5px; transition: width 0.5s ease; opacity:0.3; }
+.track-label { position:absolute; left:8px; top:50%; transform:translateY(-50%); font-size:13px; font-weight:700; z-index:2; white-space:nowrap; }
+.track-pos { position:absolute; right:8px; top:50%; transform:translateY(-50%); font-size:12px; color:var(--dim); z-index:2; }
+.track-racer { position:absolute; top:4px; width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:900; transition: left 0.5s ease; z-index:3; border:2px solid rgba(255,255,255,0.3); }
+.track-obstacle { position:absolute; bottom:-18px; font-size:9px; color:var(--dim); text-transform:uppercase; }
+.finish-flag { position:absolute; right:0; top:0; height:100%; width:4px; z-index:1; }
+.finish-flag.striped { background: repeating-linear-gradient(45deg, #fff, #fff 3px, #000 3px, #000 6px); }
+
+/* Obstacle markers on track */
+.obstacle-markers { position:relative; height:24px; margin:0 0 4px 0; }
+.obstacle-dot { position:absolute; top:4px; width:16px; height:16px; border-radius:3px; font-size:8px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; }
+.obstacle-dot.straight { background:#2e7d32; }
+.obstacle-dot.hurdle { background:#e65100; }
+.obstacle-dot.curve { background:#1565c0; }
+.obstacle-dot.jam { background:#6a1b9a; }
+
+/* Stats panel */
+.stats-panel { padding:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
+.player-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; }
+.player-card.finished { border-color:var(--green); }
+.player-card.eliminated { border-color:var(--red); opacity:0.6; }
+.player-card .name { font-size:14px; font-weight:700; margin-bottom:6px; }
+.player-card .stat-row { font-size:11px; color:var(--dim); margin:2px 0; }
+.player-card .stat-row span { color:var(--text); }
+.player-card .position-badge { float:right; font-size:18px; font-weight:900; }
+
+/* Reasoning feed */
+.feed { padding:10px 20px; max-height:300px; overflow-y:auto; }
+.feed-entry { font-size:11px; padding:4px 0; border-bottom:1px solid var(--border); }
+.feed-entry .feed-player { font-weight:700; }
+.feed-entry .feed-action { color:var(--accent); }
+.feed-entry .feed-result { color:var(--green); }
+.feed-entry .feed-result.stumble { color:var(--red); }
+.feed-entry .feed-reasoning { color:var(--dim); font-style:italic; }
+
+/* Final standings */
+.final-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:100; align-items:center; justify-content:center; }
+.final-overlay.show { display:flex; }
+.final-box { background:var(--surface); border:2px solid var(--accent); border-radius:12px; padding:30px; max-width:500px; width:90%; }
+.final-box h2 { text-align:center; margin-bottom:16px; }
+.final-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:14px; }
+.final-row .rank { font-weight:900; width:30px; }
+.final-row .score { color:var(--accent); font-weight:700; }
+
+.controls { padding:8px 20px; display:flex; gap:10px; align-items:center; }
+.controls button { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 12px; cursor:pointer; font-size:12px; font-family:inherit; }
+.controls button:hover { border-color:var(--accent); }
+.controls .status { font-size:11px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>ROLLER DERBY</h1>
+  <div class="race-info" id="race-info">Loading...</div>
+</div>
+
+<div class="controls">
+  <button id="btn-play">Play</button>
+  <button id="btn-pause">Pause</button>
+  <button id="btn-speed">1x</button>
+  <div class="status" id="status-text"></div>
+</div>
+
+<div class="track-container" id="track-container"></div>
+<div class="stats-panel" id="stats-panel"></div>
+<div class="feed" id="feed"></div>
+
+<div class="final-overlay" id="final-overlay">
+  <div class="final-box" id="final-box"></div>
+</div>
+
+<script>
+var COLORS = ['var(--accent)', 'var(--green)', 'var(--orange)', 'var(--purple)', 'var(--cyan)', 'var(--pink)', 'var(--yellow)', 'var(--red)', 'var(--blue)'];
+var PLAYER_IDS = [];
+var MODELS = {};
+var LABELS = {};
+var TRACK_LENGTH = 15;
+var TRACK = [];
+var allEntries = [];
+var currentIdx = 0;
+var playInterval = null;
+var playSpeed = 500;
+var speedModes = [500, 200, 50];
+var speedIdx = 0;
+var isPlaying = true;
+var _layoutDone = false;
+var isFinished = false;
+
+function startSSE() {
+  var es = new EventSource('/events');
+  es.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      processTurn(data);
+    } catch(err) {}
+  };
+}
+
+function processTurn(data) {
+  // Match summary (final record)
+  if (data.record_type === 'match_summary') {
+    isFinished = true;
+    // player_models might be in extra
+    var pm = (data.extra || {}).player_models || data.player_models || {};
+    Object.keys(pm).forEach(function(k) { if (pm[k]) MODELS[k] = pm[k]; });
+    return;
+  }
+
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  // Extract player info from first snapshot
+  if (snap.player_labels && !_layoutDone) {
+    LABELS = snap.player_labels;
+    PLAYER_IDS = Object.keys(snap.positions || {}).sort();
+    TRACK_LENGTH = snap.track_length || 15;
+    if (snap.track) TRACK = snap.track;
+    renderTrackLayout();
+    _layoutDone = true;
+  }
+
+  // Track model names
+  if (pid && mid) MODELS[pid] = mid;
+
+  allEntries.push(data);
+
+  if (isPlaying) {
+    renderState(allEntries.length - 1);
+  }
+}
+
+function modelName(pid) {
+  return MODELS[pid] || LABELS[pid] || pid;
+}
+
+function playerColor(pid) {
+  var idx = PLAYER_IDS.indexOf(pid);
+  return COLORS[idx % COLORS.length];
+}
+
+function renderTrackLayout() {
+  var container = document.getElementById('track-container');
+  if (!PLAYER_IDS.length) return;
+
+  // Obstacle legend
+  var legendHtml = '<div class="obstacle-markers" style="margin:0 50px 8px 50px;position:relative;height:22px;">';
+  if (TRACK.length) {
+    for (var i = 0; i < TRACK.length; i++) {
+      var pct = (i / TRACK_LENGTH) * 100;
+      var t = TRACK[i].type;
+      var letter = t === 'straight' ? 'S' : t === 'hurdle' ? 'H' : t === 'curve' ? 'C' : 'J';
+      legendHtml += '<div class="obstacle-dot ' + t + '" style="left:' + pct + '%;position:absolute;">' + letter + '</div>';
+    }
+  }
+  legendHtml += '</div>';
+
+  // Track lanes
+  var html = legendHtml;
+  for (var i = 0; i < PLAYER_IDS.length; i++) {
+    var pid = PLAYER_IDS[i];
+    var color = playerColor(pid);
+    html += '<div class="track" id="track-' + pid + '">';
+    html += '<div class="finish-flag striped"></div>';
+    html += '<div class="track-fill" id="fill-' + pid + '" style="background:' + color + ';width:0%"></div>';
+    html += '<div class="track-racer" id="racer-' + pid + '" style="left:0%;background:' + color + '">' + (LABELS[pid] || '?') + '</div>';
+    html += '<div class="track-label" style="color:' + color + '">' + modelName(pid) + '</div>';
+    html += '<div class="track-pos" id="pos-' + pid + '">0/' + TRACK_LENGTH + '</div>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function renderState(idx) {
+  if (idx < 0 || idx >= allEntries.length) return;
+  var entry = allEntries[idx];
+  var s = entry.state_snapshot;
+  if (!s) return;
+
+  var positions = s.positions || {};
+  var finishOrder = s.finish_order || [];
+  var eliminated = s.eliminated || [];
+  var stats = s.player_stats || {};
+  var scores = s.match_scores || {};
+  var raceNum = s.race_number || 1;
+  var racesTotal = s.races_per_match || 3;
+
+  // Update race info
+  document.getElementById('race-info').textContent = 'Race ' + raceNum + '/' + racesTotal + ' | Turn ' + (idx + 1) + '/' + allEntries.length;
+
+  // Update tracks
+  for (var i = 0; i < PLAYER_IDS.length; i++) {
+    var pid = PLAYER_IDS[i];
+    var pos = positions[pid] || 0;
+    var pct = Math.min(pos / TRACK_LENGTH * 100, 100);
+    var fill = document.getElementById('fill-' + pid);
+    var racer = document.getElementById('racer-' + pid);
+    var posEl = document.getElementById('pos-' + pid);
+    var trackEl = document.getElementById('track-' + pid);
+    if (fill) fill.style.width = pct + '%';
+    if (racer) racer.style.left = 'calc(' + pct + '% - 22px)';
+    if (posEl) posEl.textContent = pos + '/' + TRACK_LENGTH;
+    if (trackEl) {
+      trackEl.style.borderColor = '';
+      if (finishOrder.indexOf(pid) >= 0) trackEl.style.borderColor = 'var(--green)';
+      else if (eliminated.indexOf(pid) >= 0) trackEl.style.borderColor = 'var(--red)';
+    }
+  }
+
+  // Update stats cards
+  var statsHtml = '';
+  // Sort by score descending
+  var sorted = PLAYER_IDS.slice().sort(function(a,b) { return (scores[b]||0) - (scores[a]||0); });
+  for (var i = 0; i < sorted.length; i++) {
+    var pid = sorted[i];
+    var st = stats[pid] || {};
+    var pos = positions[pid] || 0;
+    var finIdx = finishOrder.indexOf(pid);
+    var isElim = eliminated.indexOf(pid) >= 0;
+    var cls = finIdx >= 0 ? 'finished' : isElim ? 'eliminated' : '';
+
+    var badge = '';
+    if (finIdx === 0) badge = '<span class="position-badge" style="color:var(--yellow)">1st</span>';
+    else if (finIdx === 1) badge = '<span class="position-badge" style="color:var(--dim)">2nd</span>';
+    else if (finIdx === 2) badge = '<span class="position-badge" style="color:var(--orange)">3rd</span>';
+    else if (isElim) badge = '<span class="position-badge" style="color:var(--red)">DNF</span>';
+
+    statsHtml += '<div class="player-card ' + cls + '">';
+    statsHtml += badge;
+    statsHtml += '<div class="name" style="color:' + playerColor(pid) + '">' + modelName(pid) + '</div>';
+    statsHtml += '<div class="stat-row">Score: <span style="font-weight:700">' + (scores[pid] || 0).toFixed(1) + '</span></div>';
+    statsHtml += '<div class="stat-row">Position: <span>' + pos + '/' + TRACK_LENGTH + '</span> | Turns: <span>' + (st.turns_taken || 0) + '</span></div>';
+    statsHtml += '<div class="stat-row">Sprints: <span>' + (st.sprints||0) + '</span> | Jogs: <span>' + (st.jogs||0) + '</span> | Stumbles: <span style="color:var(--red)">' + (st.stumbles||0) + '</span></div>';
+    statsHtml += '<div class="stat-row">Hurdles: <span style="color:var(--green)">' + (st.hurdles_correct||0) + '</span>/<span>' + ((st.hurdles_correct||0)+(st.hurdles_wrong||0)) + '</span> | Blocks set: <span>' + (st.blocks_set||0) + '</span> | Dodges: <span>' + (st.dodges||0) + '</span></div>';
+    statsHtml += '</div>';
+  }
+  document.getElementById('stats-panel').innerHTML = statsHtml;
+
+  // Feed: show current turn action
+  var feed = document.getElementById('feed');
+  if (entry.player_id && entry.state_snapshot) {
+    var pid = entry.player_id;
+    var action = '';
+    var reasoning = '';
+    try {
+      var parsed = typeof entry.parsed_action === 'string' ? JSON.parse(entry.parsed_action) : entry.parsed_action;
+      if (parsed) {
+        action = parsed.action || '';
+        reasoning = parsed.reasoning || '';
+        if (parsed.value !== undefined) action += ' ' + parsed.value;
+      }
+    } catch(e) {}
+    var violation = entry.violation || '';
+    var resultCls = violation ? 'stumble' : '';
+    var feedEntry = document.createElement('div');
+    feedEntry.className = 'feed-entry';
+    feedEntry.innerHTML = '<span class="feed-player" style="color:' + playerColor(pid) + '">' + modelName(pid) + '</span> '
+      + (action ? '<span class="feed-action">' + action + '</span> ' : '')
+      + (violation ? '<span class="feed-result stumble">[' + violation + ']</span> ' : '')
+      + (reasoning ? '<span class="feed-reasoning">' + reasoning.substring(0, 120) + '</span>' : '');
+    feed.insertBefore(feedEntry, feed.firstChild);
+    if (feed.children.length > 50) feed.removeChild(feed.lastChild);
+  }
+
+  // Check if match is complete
+  if (s.terminal && idx === allEntries.length - 1) {
+    showFinal(s);
+  }
+}
+
+function showFinal(s) {
+  var scores = s.match_scores || {};
+  var sorted = PLAYER_IDS.slice().sort(function(a,b) { return (scores[b]||0) - (scores[a]||0); });
+  var html = '<h2>RACE RESULTS</h2>';
+  var medals = ['&#x1F947;', '&#x1F948;', '&#x1F949;'];
+  for (var i = 0; i < sorted.length; i++) {
+    var pid = sorted[i];
+    var medal = i < 3 ? medals[i] + ' ' : (i+1) + '. ';
+    html += '<div class="final-row"><span class="rank">' + medal + '</span><span>' + modelName(pid) + '</span><span class="score">' + (scores[pid]||0).toFixed(1) + ' pts</span></div>';
+  }
+  document.getElementById('final-box').innerHTML = html;
+  document.getElementById('final-overlay').classList.add('show');
+}
+
+function startPlayback() {
+  if (playInterval) clearInterval(playInterval);
+  isPlaying = true;
+  playInterval = setInterval(function() {
+    if (currentIdx < allEntries.length) {
+      renderState(currentIdx);
+      currentIdx++;
+    } else {
+      clearInterval(playInterval);
+      playInterval = null;
+    }
+  }, playSpeed);
+}
+
+document.getElementById('btn-play').onclick = function() {
+  isPlaying = true;
+  // If paused mid-replay, resume from currentIdx
+  if (currentIdx < allEntries.length) startPlayback();
+};
+document.getElementById('btn-pause').onclick = function() {
+  isPlaying = false;
+  if (playInterval) { clearInterval(playInterval); playInterval = null; }
+};
+document.getElementById('btn-speed').onclick = function() {
+  speedIdx = (speedIdx + 1) % speedModes.length;
+  playSpeed = speedModes[speedIdx];
+  this.textContent = ['1x','2x','10x'][speedIdx];
+  if (isPlaying && playInterval) startPlayback();
+};
+document.getElementById('final-overlay').onclick = function() { this.classList.remove('show'); };
+
+startSSE();
+</script>
+</body>
+</html>"""
+
+
 # ── Yahtzee HTML/CSS/JS ──────────────────────────────────────────
 
 YAHTZEE_HTML_PAGE = r"""<!DOCTYPE html>
@@ -9682,7 +10034,7 @@ def main():
             "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE,
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
             "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
-            "rollerderby": YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
+            "rollerderby": ROLLERDERBY_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
@@ -9697,7 +10049,7 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "rollerderby": YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "rollerderby": ROLLERDERBY_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
         label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "rollerderby": "Roller Derby", "yahtzee": "Roller Derby"}.get(event_type, event_type)

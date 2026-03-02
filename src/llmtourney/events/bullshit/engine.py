@@ -79,6 +79,7 @@ class BullshitEvent(MultiplayerSeriesEvent):
             p: {
                 "lie_count": 0,
                 "truth_count": 0,
+                "unnecessary_bluff_count": 0,
                 "times_caught": 0,
                 "times_called_bs": 0,
                 "correct_calls": 0,
@@ -321,6 +322,7 @@ class BullshitEvent(MultiplayerSeriesEvent):
             self._player_stats[p] = {
                 "lie_count": 0,
                 "truth_count": 0,
+                "unnecessary_bluff_count": 0,
                 "times_caught": 0,
                 "times_called_bs": 0,
                 "correct_calls": 0,
@@ -385,6 +387,11 @@ class BullshitEvent(MultiplayerSeriesEvent):
             self._player_stats[player_id]["truth_count"] += 1
         else:
             self._player_stats[player_id]["lie_count"] += 1
+            # Unnecessary bluff: lied despite holding the called rank
+            held_target = any(_card_rank(c) == target_rank for c in self._hands[player_id])
+            played_target = any(_card_rank(c) == target_rank for c in cards)
+            if held_target or played_target:
+                self._player_stats[player_id]["unnecessary_bluff_count"] += 1
 
         # Record in history
         self._history.append({

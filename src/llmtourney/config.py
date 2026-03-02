@@ -31,6 +31,8 @@ class EventConfig:
     rounds: int = 1
     games_per_match: int = 9
     mode: str = "attrition"
+    finish_bonus: list[int] | None = None
+    race_timeout_s: float = 300.0
 
 
 @dataclass
@@ -139,6 +141,8 @@ def load_config(path: Path) -> TournamentConfig:
             rounds=e.get("rounds", 1),
             games_per_match=e.get("games_per_match", 9),
             mode=e.get("mode", "attrition"),
+            finish_bonus=e.get("finish_bonus"),
+            race_timeout_s=e.get("race_timeout_s", 300.0),
         )
 
     # Parse optional shot clock config

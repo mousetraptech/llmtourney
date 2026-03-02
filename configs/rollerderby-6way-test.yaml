@@ -1,0 +1,76 @@
+tournament:
+  name: "rollerderby-6way-test"
+  seed: 9001
+  format: round_robin
+  version: "2.1.0"
+
+# Quick 6-way concurrent roller derby test
+
+models:
+  claude-opus:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 256
+    timeout_s: 45.0
+
+  claude-sonnet:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 256
+    timeout_s: 45.0
+
+  haiku-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 256
+    timeout_s: 45.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 256
+    timeout_s: 45.0
+
+  gpt-5:
+    provider: openrouter
+    model_id: openai/gpt-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 256
+    timeout_s: 120.0
+
+  mistral-large:
+    provider: openrouter
+    model_id: mistralai/mistral-large-3
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 256
+    timeout_s: 45.0
+
+events:
+  rollerderby:
+    weight: 1
+    games_per_match: 3
+    rounds: 1
+    mode: concurrent
+    finish_bonus: [3, 2, 1]
+    race_timeout_s: 300
+
+shot_clock:
+  default_ms: 45000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 256
+  timeout_s: 45.0
