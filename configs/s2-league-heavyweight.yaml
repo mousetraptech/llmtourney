@@ -103,7 +103,7 @@ events:
     games_per_match: 1
     rounds: 1
     mode: concurrent
-    finish_bonus: [3, 2, 1]
+    finish_bonus: [25, 15, 5]
     race_timeout_s: 300
 
   gauntlet:

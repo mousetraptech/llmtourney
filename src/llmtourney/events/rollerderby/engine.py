@@ -93,7 +93,7 @@ class ConcurrentYahtzeeEvent(Event):
     ) -> None:
         self._games_per_match = games_per_match
         self._num_players = num_players
-        self._finish_bonus = finish_bonus or [3, 2, 1]
+        self._finish_bonus = finish_bonus or [25, 15, 5]
         self._race_timeout_s = race_timeout_s
 
         self._player_ids = [
