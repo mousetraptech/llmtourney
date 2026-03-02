@@ -1,26 +1,18 @@
 tournament:
   name: "rollerderby-6way-test"
-  seed: 9001
-  format: round_robin
-  version: "2.1.0"
+  seed: 7777
+  format: league
+  version: "2.0.0"
 
-# Quick 6-way concurrent roller derby test
+# ── Roller Derby (Concurrent Yahtzee) 6-player test match ────────
 
 models:
-  claude-opus:
+  claude-opus-4.6:
     provider: openrouter
-    model_id: anthropic/claude-opus-4
+    model_id: anthropic/claude-opus-4.6
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
-    max_output_tokens: 256
-    timeout_s: 45.0
-
-  claude-sonnet:
-    provider: openrouter
-    model_id: anthropic/claude-sonnet-4
-    api_key_env: OPENROUTER_API_KEY
-    temperature: 0.0
-    max_output_tokens: 256
+    max_output_tokens: 512
     timeout_s: 45.0
 
   haiku-4.5:
@@ -28,37 +20,45 @@ models:
     model_id: anthropic/claude-haiku-4.5
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
-    max_output_tokens: 256
+    max_output_tokens: 512
     timeout_s: 45.0
 
-  gpt-4o:
+  claude-sonnet-4.5:
     provider: openrouter
-    model_id: openai/gpt-4o
+    model_id: anthropic/claude-sonnet-4.5
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
-    max_output_tokens: 256
+    max_output_tokens: 512
     timeout_s: 45.0
 
-  gpt-5:
+  llama-4-scout:
     provider: openrouter
-    model_id: openai/gpt-5
+    model_id: meta-llama/llama-4-scout
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
-    max_output_tokens: 256
-    timeout_s: 120.0
+    max_output_tokens: 512
+    timeout_s: 45.0
 
-  mistral-large:
+  deepseek-chat:
     provider: openrouter
-    model_id: mistralai/mistral-large-3
+    model_id: deepseek/deepseek-chat
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
-    max_output_tokens: 256
+    max_output_tokens: 512
+    timeout_s: 45.0
+
+  ministral-8b:
+    provider: openrouter
+    model_id: mistralai/ministral-8b
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
     timeout_s: 45.0
 
 events:
   rollerderby:
     weight: 1
-    games_per_match: 3
+    games_per_match: 1
     rounds: 1
     mode: concurrent
     finish_bonus: [3, 2, 1]
@@ -72,5 +72,5 @@ forfeit_escalation:
   match_forfeit_threshold: 3
 
 compute_caps:
-  max_output_tokens: 256
+  max_output_tokens: 512
   timeout_s: 45.0

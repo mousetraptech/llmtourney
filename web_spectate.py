@@ -8078,6 +8078,1263 @@ startSSE();
 </html>"""
 
 
+# ── Concurrent Yahtzee (Roller Derby) HTML/CSS/JS ─────────────────
+
+CONCURRENT_YAHTZEE_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roller Derby Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --gold: #f0c040;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #d29922;
+  --pe: #f97583;
+  --pf: #79c0ff;
+  --pg: #ffa657;
+  --ph: #b392f0;
+  --pi: #56d4dd;
+  --pj: #e3b341;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+#header .badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+#header .game-badge {
+  background: var(--magenta);
+  color: var(--bg);
+}
+#header .turn-badge {
+  background: var(--cyan);
+  color: var(--bg);
+}
+
+/* Race progress panel */
+#race-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+#race-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.race-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.race-label {
+  width: 140px;
+  font-weight: bold;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.race-track {
+  flex: 1;
+  height: 22px;
+  background: var(--bg);
+  border-radius: 4px;
+  position: relative;
+  display: flex;
+}
+.race-segment {
+  flex: 1;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  position: relative;
+}
+.race-segment:last-child { border-right: none; }
+.race-segment.filled {
+  opacity: 1;
+}
+.race-segment.current {
+  animation: pulse-seg 1s infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+.race-segment .seg-clock {
+  font-size: 8px;
+  font-weight: bold;
+  color: var(--bg);
+  text-shadow: 0 0 2px rgba(0,0,0,0.8);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+.race-segment .seg-clock.clock-warn { color: var(--yellow); text-shadow: none; }
+.race-segment .seg-clock.clock-danger { color: var(--red); text-shadow: none; }
+@keyframes pulse-seg {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.race-segment.empty { opacity: 0.15; }
+.race-info {
+  width: 100px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.race-info .finish-tag {
+  color: var(--gold);
+  font-weight: bold;
+}
+.race-info .dnf-tag {
+  color: var(--red);
+  font-weight: bold;
+}
+
+/* Layout */
+#main {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 10px;
+}
+
+/* Scorecard table */
+#scorecard-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+#scorecard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#scorecard-table th, #scorecard-table td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+#scorecard-table th {
+  background: var(--bg);
+  color: var(--dim);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+#scorecard-table th.cat-col {
+  text-align: left;
+  min-width: 120px;
+}
+#scorecard-table .section-header {
+  background: var(--bg);
+  color: var(--cyan);
+  font-weight: bold;
+  text-align: left;
+  border-bottom: 2px solid var(--cyan);
+}
+#scorecard-table .bonus-row {
+  color: var(--gold);
+  font-weight: bold;
+}
+#scorecard-table .total-row {
+  font-weight: bold;
+  font-size: 14px;
+  border-top: 2px solid var(--text);
+}
+#scorecard-table .total-row td {
+  padding: 6px 8px;
+}
+#scorecard-table .clock-row td {
+  padding: 6px 4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border);
+}
+.clock-ok { color: var(--green); }
+.clock-warn { color: var(--yellow); }
+.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+.clock-idle { color: var(--dim); font-size: 11px; font-weight: normal; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+#scorecard-table td.active-col {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: var(--cyan);
+}
+#scorecard-table td.potential {
+  color: var(--dim);
+  font-style: italic;
+}
+#scorecard-table td.scored { color: var(--text); }
+#scorecard-table td.scored-zero { color: var(--red); opacity: 0.6; }
+#scorecard-table td.just-scored {
+  color: var(--gold);
+  font-weight: bold;
+  animation: flash-score 1s ease;
+}
+@keyframes flash-score {
+  0% { background: rgba(240, 192, 64, 0.3); }
+  100% { background: transparent; }
+}
+#scorecard-table td.finished-col {
+  background: rgba(63, 185, 80, 0.06);
+}
+
+/* Right sidebar */
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Dice display */
+#dice-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#dice-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.dice-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.dice-row .player-label {
+  width: 90px;
+  font-weight: bold;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dice-row .roll-tag {
+  width: 32px;
+  font-size: 10px;
+  color: var(--dim);
+  text-align: center;
+}
+.die {
+  width: 32px;
+  height: 32px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+}
+.die.active {
+  border-color: var(--cyan);
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.3);
+}
+.die.held {
+  border-color: var(--gold);
+  box-shadow: 0 0 8px rgba(240, 192, 64, 0.5);
+  background: rgba(240, 192, 64, 0.12);
+}
+.die.held::after {
+  content: 'HELD';
+  position: absolute;
+  bottom: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 7px;
+  color: var(--gold);
+  letter-spacing: 0.5px;
+}
+.die {
+  position: relative;
+}
+.die.finished-die {
+  border-color: var(--green);
+  opacity: 0.5;
+}
+
+/* Finish order */
+#finish-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#finish-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.finish-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.finish-pos {
+  width: 24px;
+  font-weight: bold;
+  text-align: center;
+}
+.finish-pos.gold { color: var(--gold); }
+.finish-pos.silver { color: #c0c0c0; }
+.finish-pos.bronze { color: #cd7f32; }
+.finish-bonus {
+  color: var(--green);
+  font-weight: bold;
+  font-size: 11px;
+}
+
+/* Score bars */
+#score-bar-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#score-bar-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.score-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.score-bar-label {
+  width: 90px;
+  font-weight: bold;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.score-bar-track {
+  flex: 1;
+  height: 16px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.score-bar-value {
+  width: 40px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Match scores */
+#match-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+#match-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+/* Action feed */
+#action-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  flex: 1;
+  min-height: 150px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+#action-panel h3 {
+  color: var(--cyan);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.action-entry {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.action-entry:last-child { border-bottom: none; }
+
+/* Replay controls */
+#replay-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#replay-bar button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+#replay-bar button:hover { border-color: var(--cyan); }
+#replay-bar button.active {
+  background: var(--cyan);
+  color: var(--bg);
+  border-color: var(--cyan);
+}
+#replay-slider { flex: 1; accent-color: var(--cyan); }
+#replay-counter { color: var(--dim); font-size: 12px; min-width: 60px; text-align: right; }
+
+/* Reasoning panel */
+#reasoning-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+  display: none;
+}
+#reasoning-panel h3 { color: var(--cyan); margin-bottom: 8px; font-size: 13px; }
+#reasoning-text { font-size: 12px; color: var(--dim); white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span style="font-size: 16px; font-weight: bold;">ROLLER DERBY</span>
+  <span class="badge turn-badge" id="turn-badge">Turn 0</span>
+  <span class="badge game-badge" id="game-badge" style="display:none">Game 1</span>
+  <span id="active-info" style="color: var(--dim);"></span>
+</div>
+
+<div id="replay-bar">
+  <button id="btn-prev" title="Previous">&#9664;&#9664;</button>
+  <button id="btn-play" title="Play/Pause">&#9654;</button>
+  <button id="btn-next" title="Next">&#9654;&#9654;</button>
+  <input type="range" id="replay-slider" min="0" max="0" value="0">
+  <span id="replay-counter">0 / 0</span>
+  <button id="btn-live" class="active">LIVE</button>
+</div>
+
+<div id="race-panel">
+  <h3>RACE PROGRESS</h3>
+  <div id="race-area"></div>
+</div>
+
+<div id="main">
+  <div id="scorecard-panel">
+    <table id="scorecard-table">
+      <thead><tr id="sc-header"></tr></thead>
+      <tbody id="sc-body"></tbody>
+    </table>
+  </div>
+
+  <div id="sidebar">
+    <div id="dice-panel">
+      <h3>CURRENT DICE</h3>
+      <div id="dice-area"></div>
+    </div>
+
+    <div id="finish-panel" style="display:none;">
+      <h3>FINISH ORDER</h3>
+      <div id="finish-area"></div>
+    </div>
+
+    <div id="score-bar-panel">
+      <h3>YAHTZEE TOTALS</h3>
+      <div id="score-bars"></div>
+    </div>
+
+    <div id="match-panel" style="display:none;">
+      <h3>MATCH SCORES</h3>
+      <div id="match-scores"></div>
+    </div>
+
+    <div id="action-panel">
+      <h3>ACTION FEED</h3>
+      <div id="action-feed"></div>
+    </div>
+  </div>
+</div>
+
+<div id="reasoning-panel">
+  <h3>REASONING</h3>
+  <div id="reasoning-text"></div>
+</div>
+
+<script>
+const PLAYER_COLORS = ['pa','pb','pc','pd','pe','pf','pg','ph','pi','pj'];
+const UPPER = ['ones','twos','threes','fours','fives','sixes'];
+const LOWER = ['three_of_a_kind','four_of_a_kind','full_house','small_straight','large_straight','yahtzee','chance'];
+const ALL_CATS = UPPER.concat(LOWER);
+const CAT_LABELS = {
+  ones:'Ones', twos:'Twos', threes:'Threes', fours:'Fours', fives:'Fives', sixes:'Sixes',
+  three_of_a_kind:'3 of a Kind', four_of_a_kind:'4 of a Kind', full_house:'Full House',
+  small_straight:'Sm Straight', large_straight:'Lg Straight', yahtzee:'Yahtzee', chance:'Chance'
+};
+const TOTAL_ROUNDS = 13;
+const MAX_SCORE = 400;
+const FINISH_BONUS_DEFAULT = [3, 2, 1];
+
+let entries = [];
+let replayIdx = -1;
+let isLive = true;
+let isReplaying = false;
+let replayTimer = null;
+let playerIds = [];
+let playerLabels = {};
+let playerModels = {};
+let finishBonus = FINISH_BONUS_DEFAULT;
+let actionLog = [];
+
+// Per-player held dice indices (from last reroll action)
+let heldDice = {};  // pid -> [indices] or null
+
+// Per-player turn timing (for shot clock in race segments)
+let playerTurnStart = {};  // pid -> timestamp when last turn started
+let playerPending = {};    // pid -> true if waiting for response
+
+// Shot clock
+let shotClock = {
+  timeLimitMs: 0,
+  lastLatency: {},
+  strikes: {},
+  strikeLimit: null,
+};
+
+// Previous snapshot for detecting newly scored categories
+let prevScoreSnap = {};
+
+function shortModel(name) {
+  if (!name) return '';
+  return name.replace(/^(openai|anthropic|google|x-ai|deepseek|meta|mistralai|amazon|perplexity|cohere)\//i, '')
+             .replace(/-instruct$/i, '');
+}
+
+function displayName(pid) {
+  return playerModels[pid] || ('Player ' + (playerLabels[pid] || pid));
+}
+
+function extractModels(data) {
+  let changed = false;
+  const pm = (data.state_snapshot && data.state_snapshot.player_models) || data.player_models || {};
+  Object.keys(pm).forEach(k => {
+    if (pm[k] && !playerModels[k]) { playerModels[k] = shortModel(pm[k]); changed = true; }
+  });
+  if (data.player_id && data.model_id && !playerModels[data.player_id]) {
+    playerModels[data.player_id] = shortModel(data.model_id); changed = true;
+  }
+  if (changed) refreshLabels();
+}
+
+function refreshLabels() {
+  document.querySelectorAll('#sc-header th[data-pid]').forEach(th => {
+    th.textContent = displayName(th.dataset.pid);
+  });
+  document.querySelectorAll('.dice-row .player-label').forEach(lbl => {
+    const pid = lbl.parentElement.dataset.pid;
+    if (pid) lbl.textContent = displayName(pid);
+  });
+  document.querySelectorAll('.score-bar-label').forEach(lbl => {
+    const row = lbl.closest('.score-bar-row');
+    if (!row) return;
+    const fill = row.querySelector('.score-bar-fill');
+    if (fill && fill.dataset.pid) lbl.textContent = displayName(fill.dataset.pid);
+  });
+  document.querySelectorAll('.race-label').forEach(lbl => {
+    const row = lbl.closest('.race-row');
+    if (row && row.dataset.pid) lbl.textContent = displayName(row.dataset.pid);
+  });
+}
+
+function initPlayers(snap) {
+  if (playerIds.length > 0) return;
+  playerIds = Object.keys(snap.scorecards || {});
+  const labels = snap.player_labels || {};
+  playerIds.forEach((pid, i) => {
+    playerLabels[pid] = labels[pid] || String.fromCharCode(65 + i);
+  });
+  const pm = snap.player_models || {};
+  Object.keys(pm).forEach(k => {
+    if (pm[k]) playerModels[k] = shortModel(pm[k]);
+  });
+  buildScorecard();
+  buildDiceArea();
+  buildScoreBars();
+  buildRaceArea();
+}
+
+// ── Race progress ──
+
+function buildRaceArea() {
+  const area = document.getElementById('race-area');
+  area.innerHTML = '';
+  playerIds.forEach((pid, i) => {
+    const row = document.createElement('div');
+    row.className = 'race-row';
+    row.dataset.pid = pid;
+    row.innerHTML = `
+      <span class="race-label" style="color:var(--${PLAYER_COLORS[i]})">${displayName(pid)}</span>
+      <div class="race-track" data-pid="${pid}"></div>
+      <span class="race-info" data-pid="${pid}"></span>
+    `;
+    const track = row.querySelector('.race-track');
+    for (let r = 0; r < TOTAL_ROUNDS; r++) {
+      const seg = document.createElement('div');
+      seg.className = 'race-segment empty';
+      seg.style.background = `var(--${PLAYER_COLORS[i]})`;
+      track.appendChild(seg);
+    }
+    area.appendChild(row);
+  });
+}
+
+function renderRaceProgress(snap) {
+  const players = snap.players || {};
+  const fo = snap.finish_order || [];
+  const elim = new Set(snap.eliminated || []);
+
+  playerIds.forEach((pid, i) => {
+    const ps = players[pid] || {};
+    const track = document.querySelector(`.race-track[data-pid="${pid}"]`);
+    const info = document.querySelector(`.race-info[data-pid="${pid}"]`);
+    if (!track) return;
+
+    const segs = track.querySelectorAll('.race-segment');
+    const round = ps.round || 0;
+    const finished = ps.finished || false;
+
+    segs.forEach((seg, r) => {
+      seg.className = 'race-segment';
+      seg.style.background = `var(--${PLAYER_COLORS[i]})`;
+      seg.innerHTML = '';
+      if (r < round - (finished ? 0 : 1)) {
+        seg.classList.add('filled');
+        seg.style.opacity = '1';
+      } else if (!finished && r === round - 1) {
+        seg.classList.add('current');
+        seg.style.opacity = '0.7';
+        // Shot clock inside the current segment
+        const start = playerTurnStart[pid];
+        if (start && playerPending[pid] && shotClock.timeLimitMs && !isReplaying) {
+          const elapsed = Date.now() - start;
+          const remaining = Math.max(0, shotClock.timeLimitMs - elapsed);
+          const secs = remaining / 1000;
+          const span = document.createElement('span');
+          span.className = 'seg-clock' + (secs > 10 ? '' : secs > 5 ? ' clock-warn' : ' clock-danger');
+          span.textContent = secs.toFixed(0) + 's';
+          seg.appendChild(span);
+        }
+      } else {
+        seg.classList.add('empty');
+      }
+    });
+
+    if (info) {
+      if (elim.has(pid)) {
+        info.innerHTML = '<span class="dnf-tag">DNF</span>';
+      } else if (finished && ps.finish_order_idx !== null && ps.finish_order_idx !== undefined) {
+        const pos = ps.finish_order_idx + 1;
+        const bonus = (pos - 1 < finishBonus.length) ? finishBonus[pos - 1] : 0;
+        const bonusStr = bonus > 0 ? ` <span class="finish-bonus">+${bonus}</span>` : '';
+        info.innerHTML = `<span class="finish-tag">#${pos}</span> (${ps.turns_taken}t)${bonusStr}`;
+      } else {
+        const rollStr = ps.roll_number ? `R${round} roll ${ps.roll_number}/3` : '';
+        info.textContent = rollStr;
+      }
+    }
+  });
+}
+
+// ── Scorecard ──
+
+function buildScorecard() {
+  const hdr = document.getElementById('sc-header');
+  hdr.innerHTML = '<th class="cat-col">Category</th>';
+  playerIds.forEach((pid, i) => {
+    const th = document.createElement('th');
+    th.textContent = displayName(pid);
+    th.style.color = `var(--${PLAYER_COLORS[i]})`;
+    th.dataset.pid = pid;
+    hdr.appendChild(th);
+  });
+  const body = document.getElementById('sc-body');
+  body.innerHTML = '';
+  addClockRow(body);
+  addSectionRow(body, 'UPPER SECTION');
+  UPPER.forEach(cat => addCatRow(body, cat));
+  addSpecialRow(body, '_upper_subtotal', 'Upper Subtotal');
+  addSpecialRow(body, '_upper_bonus', 'Bonus (63+)', true);
+  addSectionRow(body, 'LOWER SECTION');
+  LOWER.forEach(cat => addCatRow(body, cat));
+  addSpecialRow(body, '_yahtzee_bonuses', 'Yahtzee Bonus');
+  addTotalRow(body);
+}
+
+function addSectionRow(body, label) {
+  const tr = document.createElement('tr');
+  const td = document.createElement('td');
+  td.className = 'section-header';
+  td.colSpan = playerIds.length + 1;
+  td.textContent = label;
+  tr.appendChild(td);
+  body.appendChild(tr);
+}
+
+function addCatRow(body, cat) {
+  const tr = document.createElement('tr');
+  tr.dataset.cat = cat;
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = CAT_LABELS[cat] || cat;
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.cat = cat;
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function addSpecialRow(body, key, label, isBonus) {
+  const tr = document.createElement('tr');
+  if (isBonus) tr.className = 'bonus-row';
+  tr.dataset.special = key;
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = label;
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.special = key;
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function addTotalRow(body) {
+  const tr = document.createElement('tr');
+  tr.className = 'total-row';
+  tr.dataset.special = '_total';
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = 'TOTAL';
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.special = '_total';
+    cell.style.fontWeight = 'bold';
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function addClockRow(body) {
+  const tr = document.createElement('tr');
+  tr.className = 'clock-row';
+  const td = document.createElement('td');
+  td.className = 'cat-col';
+  td.textContent = 'SHOT CLOCK';
+  td.style.color = 'var(--dim)';
+  td.style.fontSize = '10px';
+  td.style.letterSpacing = '1px';
+  tr.appendChild(td);
+  playerIds.forEach(pid => {
+    const cell = document.createElement('td');
+    cell.dataset.pid = pid;
+    cell.dataset.clock = '1';
+    cell.textContent = '--';
+    cell.className = 'clock-idle';
+    tr.appendChild(cell);
+  });
+  body.appendChild(tr);
+}
+
+function renderClocks() {
+  playerIds.forEach(pid => {
+    const cell = document.querySelector('td[data-pid="' + pid + '"][data-clock="1"]');
+    if (!cell) return;
+    cell.style.color = '';
+    if (shotClock.lastLatency[pid] !== undefined) {
+      const lat = shotClock.lastLatency[pid] / 1000;
+      cell.textContent = lat.toFixed(1) + 's';
+      cell.className = 'clock-idle';
+      const strikes = shotClock.strikes[pid] || 0;
+      if (strikes > 0) {
+        cell.textContent += ' \u26A0' + strikes;
+        cell.style.color = 'var(--yellow)';
+      }
+    } else {
+      cell.textContent = '--';
+      cell.className = 'clock-idle';
+    }
+  });
+}
+
+// ── Dice ──
+
+function buildDiceArea() {
+  const area = document.getElementById('dice-area');
+  area.innerHTML = '';
+  playerIds.forEach((pid, i) => {
+    const row = document.createElement('div');
+    row.className = 'dice-row';
+    row.dataset.pid = pid;
+    const lbl = document.createElement('span');
+    lbl.className = 'player-label';
+    lbl.textContent = displayName(pid);
+    lbl.style.color = `var(--${PLAYER_COLORS[i]})`;
+    row.appendChild(lbl);
+    const rtag = document.createElement('span');
+    rtag.className = 'roll-tag';
+    rtag.dataset.pid = pid;
+    row.appendChild(rtag);
+    for (let d = 0; d < 5; d++) {
+      const die = document.createElement('div');
+      die.className = 'die';
+      die.dataset.idx = d;
+      row.appendChild(die);
+    }
+    area.appendChild(row);
+  });
+}
+
+// ── Score bars ──
+
+function buildScoreBars() {
+  const container = document.getElementById('score-bars');
+  container.innerHTML = '';
+  playerIds.forEach((pid, i) => {
+    const row = document.createElement('div');
+    row.className = 'score-bar-row';
+    row.innerHTML = `
+      <span class="score-bar-label" style="color:var(--${PLAYER_COLORS[i]})">${displayName(pid)}</span>
+      <div class="score-bar-track">
+        <div class="score-bar-fill" data-pid="${pid}" style="background:var(--${PLAYER_COLORS[i]});width:0%"></div>
+      </div>
+      <span class="score-bar-value" data-pid="${pid}">0</span>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// ── Render ──
+
+function renderState(snap) {
+  if (!snap) return;
+  initPlayers(snap);
+
+  const players = snap.players || {};
+  const scorecards = snap.scorecards || {};
+  const potential = snap.potential_scores || {};
+
+  // Header
+  document.getElementById('turn-badge').textContent = `Turn ${snap.turn_number || 0}`;
+  const gpMatch = snap.games_per_match || 1;
+  const gameBadge = document.getElementById('game-badge');
+  if (gpMatch > 1) {
+    gameBadge.textContent = `Game ${snap.game_number}/${gpMatch}`;
+    gameBadge.style.display = '';
+  } else {
+    gameBadge.style.display = 'none';
+  }
+
+  const finished = (snap.finish_order || []).length;
+  const active = playerIds.filter(pid => !(players[pid] || {}).finished).length;
+  if (!snap.terminal) {
+    document.getElementById('active-info').innerHTML =
+      `<span style="color:var(--green)">${finished} finished</span> &mdash; <span style="color:var(--cyan)">${active} racing</span>`;
+  } else {
+    document.getElementById('active-info').textContent = 'GAME OVER';
+  }
+
+  // Race progress
+  renderRaceProgress(snap);
+
+  // Detect newly scored categories for flash
+  const justScored = {};
+  playerIds.forEach(pid => {
+    justScored[pid] = {};
+    const sc = scorecards[pid] || {};
+    const prev = prevScoreSnap[pid] || {};
+    ALL_CATS.forEach(cat => {
+      if (sc[cat] !== null && sc[cat] !== undefined && (prev[cat] === null || prev[cat] === undefined)) {
+        justScored[pid][cat] = true;
+      }
+    });
+  });
+
+  // Update scorecard
+  playerIds.forEach((pid, i) => {
+    const sc = scorecards[pid] || {};
+    const pot = potential[pid] || {};
+    const ps = players[pid] || {};
+    const isActive = !ps.finished && !snap.terminal;
+    const isFinished = ps.finished;
+
+    ALL_CATS.forEach(cat => {
+      const cell = document.querySelector(`td[data-pid="${pid}"][data-cat="${cat}"]`);
+      if (!cell) return;
+      cell.className = isFinished ? 'finished-col' : (isActive ? 'active-col' : '');
+
+      const val = sc[cat];
+      if (val !== null && val !== undefined) {
+        cell.textContent = val;
+        if (justScored[pid][cat]) {
+          cell.className += ' just-scored';
+        } else if (val === 0) {
+          cell.className += ' scored-zero';
+        } else {
+          cell.className += ' scored';
+        }
+      } else if (isActive && pot[cat] !== undefined) {
+        cell.textContent = pot[cat];
+        cell.className += ' potential';
+      } else {
+        cell.textContent = '';
+      }
+    });
+
+    // Special rows
+    ['_upper_subtotal', '_upper_bonus', '_yahtzee_bonuses', '_total'].forEach(key => {
+      const cell = document.querySelector(`td[data-pid="${pid}"][data-special="${key}"]`);
+      if (!cell) return;
+      const val = sc[key];
+      cell.className = isFinished ? 'finished-col' : (isActive ? 'active-col' : '');
+      if (key === '_yahtzee_bonuses') {
+        cell.textContent = val ? `+${val * 100}` : '';
+      } else if (val !== undefined && val !== null) {
+        cell.textContent = val;
+      } else {
+        cell.textContent = '';
+      }
+    });
+  });
+
+  // Save for next diff
+  prevScoreSnap = {};
+  playerIds.forEach(pid => {
+    prevScoreSnap[pid] = Object.assign({}, (scorecards[pid] || {}));
+  });
+
+  // Update dice — per-player from snap.players
+  playerIds.forEach((pid, i) => {
+    const ps = players[pid] || {};
+    const row = document.querySelector(`.dice-row[data-pid="${pid}"]`);
+    if (!row) return;
+    const dies = row.querySelectorAll('.die');
+    const pDice = ps.dice || [];
+    const isActive = !ps.finished && !snap.terminal;
+    const kept = heldDice[pid] || [];
+    dies.forEach((die, d) => {
+      die.textContent = pDice[d] || '';
+      const isHeld = kept.includes(d) && isActive;
+      die.className = 'die'
+        + (isActive ? ' active' : (ps.finished ? ' finished-die' : ''))
+        + (isHeld ? ' held' : '');
+      die.style.color = `var(--${PLAYER_COLORS[i]})`;
+    });
+    // Roll tag
+    const rtag = row.querySelector('.roll-tag');
+    if (rtag) {
+      if (ps.finished) {
+        rtag.textContent = 'DONE';
+        rtag.style.color = 'var(--green)';
+      } else if (ps.roll_number) {
+        rtag.textContent = `${ps.roll_number}/3`;
+        rtag.style.color = 'var(--dim)';
+      } else {
+        rtag.textContent = '';
+      }
+    }
+  });
+
+  // Finish order
+  const fo = snap.finish_order || [];
+  const fPanel = document.getElementById('finish-panel');
+  const fArea = document.getElementById('finish-area');
+  if (fo.length > 0) {
+    fPanel.style.display = '';
+    fArea.innerHTML = '';
+    fo.forEach((pid, idx) => {
+      const pi = playerIds.indexOf(pid);
+      const color = PLAYER_COLORS[pi] || 'dim';
+      const posClass = idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : '';
+      const bonus = (idx < finishBonus.length) ? finishBonus[idx] : 0;
+      const bonusStr = bonus > 0 ? `<span class="finish-bonus">+${bonus}</span>` : '';
+      const ps = players[pid] || {};
+      const turns = ps.turns_taken || '?';
+      const div = document.createElement('div');
+      div.className = 'finish-entry';
+      div.innerHTML = `<span class="finish-pos ${posClass}">#${idx+1}</span>
+        <span style="color:var(--${color})">${displayName(pid)}</span>
+        <span style="color:var(--dim);font-size:10px">(${turns}t)</span> ${bonusStr}`;
+      fArea.appendChild(div);
+    });
+  } else {
+    fPanel.style.display = 'none';
+  }
+
+  // Score bars
+  playerIds.forEach(pid => {
+    const sc = scorecards[pid] || {};
+    const total = sc._total || 0;
+    const pct = Math.min(100, (total / MAX_SCORE) * 100);
+    const fill = document.querySelector(`.score-bar-fill[data-pid="${pid}"]`);
+    const val = document.querySelector(`.score-bar-value[data-pid="${pid}"]`);
+    if (fill) fill.style.width = pct + '%';
+    if (val) val.textContent = total;
+  });
+
+  // Match scores
+  const ms = snap.match_scores || {};
+  const hasMatch = Object.values(ms).some(v => v > 0);
+  const mPanel = document.getElementById('match-panel');
+  if (hasMatch) {
+    mPanel.style.display = '';
+    const mDiv = document.getElementById('match-scores');
+    mDiv.innerHTML = playerIds.map((pid, i) =>
+      `<span style="color:var(--${PLAYER_COLORS[i]})">${displayName(pid)}: ${(ms[pid]||0).toFixed(1)}</span>`
+    ).join(' &nbsp; ');
+  }
+
+  renderClocks();
+}
+
+function addActionEntry(data) {
+  if (!data.player_id || !data.parsed_action) return;
+  const pid = data.player_id;
+  const act = data.parsed_action;
+  const pi = playerIds.indexOf(pid);
+  const color = PLAYER_COLORS[pi] || 'dim';
+  const name = displayName(pid);
+  let desc = '';
+  if (act.action === 'score') {
+    desc = `scored <b>${CAT_LABELS[act.category] || act.category}</b>`;
+  } else if (act.action === 'reroll') {
+    const kept = (act.keep || []).length;
+    desc = `rerolled (kept ${kept})`;
+  } else {
+    desc = act.action || '?';
+  }
+  actionLog.push({color, name, desc});
+  if (actionLog.length > 50) actionLog.shift();
+  renderActionFeed();
+}
+
+function renderActionFeed() {
+  const feed = document.getElementById('action-feed');
+  feed.innerHTML = '';
+  actionLog.slice(-20).reverse().forEach(e => {
+    const div = document.createElement('div');
+    div.className = 'action-entry';
+    div.innerHTML = `<span style="color:var(--${e.color})">${e.name}</span> ${e.desc}`;
+    feed.appendChild(div);
+  });
+}
+
+function renderReasoning(entry) {
+  const panel = document.getElementById('reasoning-panel');
+  const text = entry.reasoning_output || (entry.parsed_action && entry.parsed_action.reasoning) || '';
+  if (text) {
+    panel.style.display = '';
+    const pi = playerIds.indexOf(entry.player_id);
+    const color = PLAYER_COLORS[pi] || 'dim';
+    const name = displayName(entry.player_id);
+    document.getElementById('reasoning-text').innerHTML =
+      `<span style="color:var(--${color})">${name}:</span> ${text.replace(/</g,'&lt;')}`;
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+// ── Replay ──
+
+const slider = document.getElementById('replay-slider');
+const counter = document.getElementById('replay-counter');
+const btnPrev = document.getElementById('btn-prev');
+const btnPlay = document.getElementById('btn-play');
+const btnNext = document.getElementById('btn-next');
+const btnLive = document.getElementById('btn-live');
+
+function goToEntry(idx) {
+  if (idx < 0) idx = 0;
+  if (idx >= entries.length) idx = entries.length - 1;
+  replayIdx = idx;
+  slider.value = idx;
+  counter.textContent = `${idx + 1} / ${entries.length}`;
+  const e = entries[idx];
+  renderState(e.state_snapshot);
+  renderReasoning(e);
+}
+
+function goLive() {
+  isLive = true;
+  isReplaying = false;
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  btnLive.classList.add('active');
+  btnPlay.textContent = '\u25B6';
+  if (entries.length > 0) goToEntry(entries.length - 1);
+}
+
+function exitLive() {
+  isLive = false;
+  btnLive.classList.remove('active');
+}
+
+slider.addEventListener('input', () => { exitLive(); goToEntry(parseInt(slider.value)); });
+btnPrev.addEventListener('click', () => { exitLive(); goToEntry(replayIdx - 1); });
+btnNext.addEventListener('click', () => { exitLive(); goToEntry(replayIdx + 1); });
+btnLive.addEventListener('click', goLive);
+btnPlay.addEventListener('click', () => {
+  if (isReplaying) {
+    isReplaying = false;
+    if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+    btnPlay.textContent = '\u25B6';
+  } else {
+    exitLive();
+    isReplaying = true;
+    btnPlay.textContent = '\u23F8';
+    if (replayIdx >= entries.length - 1) replayIdx = -1;
+    replayTimer = setInterval(() => {
+      if (replayIdx >= entries.length - 1) {
+        isReplaying = false;
+        clearInterval(replayTimer);
+        replayTimer = null;
+        btnPlay.textContent = '\u25B6';
+        return;
+      }
+      goToEntry(replayIdx + 1);
+    }, 400);
+  }
+});
+
+// ── SSE ──
+
+const evtSource = new EventSource('/events');
+evtSource.onmessage = (event) => {
+  try {
+    const data = JSON.parse(event.data);
+    extractModels(data);
+    if (data.time_limit_ms) shotClock.timeLimitMs = data.time_limit_ms;
+    if (data.strike_limit) shotClock.strikeLimit = data.strike_limit;
+    if (data.player_id && data.latency_ms !== undefined) {
+      shotClock.lastLatency[data.player_id] = data.latency_ms;
+      // This player just responded — no longer pending
+      playerPending[data.player_id] = false;
+    }
+    if (data.player_id && data.cumulative_strikes !== undefined) {
+      shotClock.strikes[data.player_id] = data.cumulative_strikes;
+    }
+    // Track held dice from reroll actions
+    if (data.player_id && data.parsed_action) {
+      const act = data.parsed_action;
+      if (act.action === 'reroll') {
+        heldDice[data.player_id] = act.keep || [];
+      } else {
+        // Scored — clear held state
+        heldDice[data.player_id] = null;
+      }
+    }
+    // In concurrent mode, all non-finished players are pending after each turn event
+    // Mark all active players as pending (they might be queried next)
+    if (data.state_snapshot && data.state_snapshot.players) {
+      const ps = data.state_snapshot.players;
+      Object.keys(ps).forEach(pid => {
+        if (!ps[pid].finished && !playerPending[pid]) {
+          playerPending[pid] = true;
+          playerTurnStart[pid] = Date.now();
+        }
+      });
+    }
+    addActionEntry(data);
+    entries.push(data);
+    slider.max = entries.length - 1;
+    if (isLive) goToEntry(entries.length - 1);
+  } catch(e) {}
+};
+evtSource.onerror = () => { setTimeout(() => location.reload(), 3000); };
+// Tick race segment clocks every 100ms
+setInterval(function() {
+  if (shotClock.timeLimitMs && !isReplaying) {
+    renderClocks();
+    // Re-render race progress to update segment clocks
+    if (entries.length > 0 && isLive) {
+      const lastSnap = entries[entries.length - 1].state_snapshot;
+      if (lastSnap) renderRaceProgress(lastSnap);
+    }
+  }
+}, 100);
+</script>
+</body>
+</html>"""
+
+
 # ── Yahtzee HTML/CSS/JS ──────────────────────────────────────────
 
 YAHTZEE_HTML_PAGE = r"""<!DOCTYPE html>
@@ -8085,7 +9342,7 @@ YAHTZEE_HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Roller Derby Spectator</title>
+<title>Yahtzee Spectator</title>
 <style>
 :root {
   --bg: #0d1117;
@@ -10036,7 +11293,7 @@ def main():
             "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE,
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
             "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
-            "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": YAHTZEE_HTML_PAGE,
+            "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE,
             "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
         }
 
@@ -10052,7 +11309,7 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
         label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee"}.get(event_type, event_type)
