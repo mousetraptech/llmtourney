@@ -75,7 +75,7 @@ def score_category(dice: list[int], category: str) -> int:
 
 
 class YahtzeeEvent(MultiplayerSeriesEvent):
-    """N-player concurrent Yahtzee engine (display name: Roller Derby).
+    """N-player sequential Yahtzee engine.
 
     Parameters
     ----------
@@ -87,7 +87,7 @@ class YahtzeeEvent(MultiplayerSeriesEvent):
 
     @property
     def display_name(self) -> str:
-        return "Roller Derby"
+        return "Yahtzee"
 
     def __init__(
         self,

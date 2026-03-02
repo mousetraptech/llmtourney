@@ -98,7 +98,7 @@ class MongoSink:
         _known = {
             "bullshit", "holdem", "liarsdice", "rollerderby",
             "connectfour", "checkers", "reversi", "scrabble",
-            "tictactoe", "yahtzee",
+            "tictactoe", "yahtzee", "gauntlet",
         }
         prefix = match_id.split("-")[0]
         return prefix if prefix in _known else "unknown"

@@ -1,98 +1,97 @@
-"""Roller Derby — concurrent N-player racing game engine.
+"""Roller Derby — concurrent N-player Yahtzee racing engine.
 
-All players race simultaneously. Each player progresses through a track of
-obstacle segments by making decisions. Response latency is a game mechanic:
-faster models get more turns per wall-clock second in concurrent mode.
+All players fill out 13-round Yahtzee scorecards simultaneously, racing at
+their own pace. Response latency IS the game mechanic: faster models get more
+turns per wall-clock second in concurrent mode. Finish bonuses reward the
+first players to complete all 13 categories.
 
-Track segments (obstacles):
-  - straight: choose "jog" (+1 safe) or "sprint" (+2, chance of stumble)
-  - hurdle: answer a math question correctly (+2) or wrong (+0)
-  - curve: choose "inside" (+2 risky) or "outside" (+1 safe)
-  - jam: choose "block" (stay, trap next arrival) or "dodge" (+1 safe)
-
-Finish bonuses: +3/+2/+1 for first three finishers (configurable).
-DNF players scored by final position on track.
-
-Unlike other events, Roller Derby is designed for concurrent execution:
-each player's state is independent, allowing parallel prompt/response cycles.
+Reuses all pure scoring logic from ``events.yahtzee.engine`` but with
+per-player independent state behind threading locks for safe concurrent access.
 """
 
 from __future__ import annotations
 
 import random
+import string
 import threading
 
 from llmtourney.events.base import Event, ValidationResult
+from llmtourney.events.yahtzee.engine import (
+    ALL_CATEGORIES,
+    FACE_FOR_UPPER,
+    LOWER_CATEGORIES,
+    TOTAL_ROUNDS,
+    UPPER_BONUS_THRESHOLD,
+    UPPER_BONUS_VALUE,
+    UPPER_CATEGORIES,
+    YAHTZEE_BONUS_VALUE,
+    score_category,
+)
 
-__all__ = ["RollerDerbyEvent"]
-
-TRACK_LENGTH = 15
-OBSTACLE_TYPES = ["straight", "hurdle", "curve", "jam"]
-
-# Math question templates: (format_str, answer_fn)
-_MATH_OPS = [
-    ("+", lambda a, b: a + b),
-    ("-", lambda a, b: a - b),
-    ("*", lambda a, b: a * b),
-]
-
-
-def _generate_track(rng: random.Random) -> list[dict]:
-    """Generate a track of TRACK_LENGTH obstacle segments."""
-    track = []
-    for i in range(TRACK_LENGTH):
-        otype = rng.choice(OBSTACLE_TYPES)
-        segment: dict = {"type": otype, "position": i}
-
-        if otype == "straight":
-            # Sprint success probability: 60-80%
-            segment["sprint_success"] = rng.randint(60, 80) / 100.0
-
-        elif otype == "hurdle":
-            op_sym, op_fn = rng.choice(_MATH_OPS)
-            if op_sym == "*":
-                a, b = rng.randint(2, 12), rng.randint(2, 12)
-            else:
-                a, b = rng.randint(10, 99), rng.randint(10, 99)
-                if op_sym == "-" and b > a:
-                    a, b = b, a  # keep positive
-            segment["question"] = f"What is {a} {op_sym} {b}?"
-            segment["answer"] = op_fn(a, b)
-
-        elif otype == "curve":
-            segment["inside_success"] = rng.randint(50, 70) / 100.0
-
-        elif otype == "jam":
-            pass  # no extra params needed
-
-        track.append(segment)
-    return track
+__all__ = ["ConcurrentYahtzeeEvent"]
 
 
-class RollerDerbyEvent(Event):
-    """N-player concurrent racing engine.
+class _PlayerState:
+    """Per-player Yahtzee state — one per player, mutated under lock."""
+
+    __slots__ = (
+        "scorecard", "dice", "roll_number", "round_number",
+        "yahtzee_bonuses", "rng", "finished", "finish_order_idx",
+        "turns_taken", "game_scores",
+    )
+
+    def __init__(self, rng: random.Random) -> None:
+        self.rng = rng
+        self.scorecard: dict[str, int | None] = {cat: None for cat in ALL_CATEGORIES}
+        self.dice: list[int] = []
+        self.roll_number: int = 0
+        self.round_number: int = 0
+        self.yahtzee_bonuses: int = 0
+        self.finished: bool = False
+        self.finish_order_idx: int | None = None
+        self.turns_taken: int = 0
+        self.game_scores: list[int] = []  # total per completed game
+
+    def start_round(self) -> None:
+        self.round_number += 1
+        self.roll_number = 1
+        self.dice = [self.rng.randint(1, 6) for _ in range(5)]
+
+    def available_categories(self) -> list[str]:
+        return [cat for cat in ALL_CATEGORIES if self.scorecard[cat] is None]
+
+    def calculate_total(self) -> int:
+        sc = self.scorecard
+        upper = sum(v for c in UPPER_CATEGORIES if (v := sc[c]) is not None)
+        upper_bonus = UPPER_BONUS_VALUE if upper >= UPPER_BONUS_THRESHOLD else 0
+        lower = sum(v for c in LOWER_CATEGORIES if (v := sc[c]) is not None)
+        yb = self.yahtzee_bonuses * YAHTZEE_BONUS_VALUE
+        return upper + upper_bonus + lower + yb
+
+
+class ConcurrentYahtzeeEvent(Event):
+    """N-player concurrent Yahtzee racing engine.
 
     Parameters
     ----------
-    races_per_match : int
-        Number of races in a match.
+    games_per_match : int
+        Number of full 13-round scorecards in a match.
     num_players : int
-        Number of racers.
+        Number of players (2-9).
     finish_bonus : list[int]
-        Bonus points for 1st/2nd/3rd finishers.
+        Bonus points for 1st/2nd/3rd finishers per game.
     race_timeout_s : float
-        Max seconds per race before forced end.
+        Max seconds per game before forced end.
     """
 
     def __init__(
         self,
-        races_per_match: int = 3,
+        games_per_match: int = 1,
         num_players: int = 7,
         finish_bonus: list[int] | None = None,
         race_timeout_s: float = 300.0,
     ) -> None:
-        import string
-        self._races_per_match = races_per_match
+        self._games_per_match = games_per_match
         self._num_players = num_players
         self._finish_bonus = finish_bonus or [3, 2, 1]
         self._race_timeout_s = race_timeout_s
@@ -107,30 +106,19 @@ class RollerDerbyEvent(Event):
         self._action_schema = self._load_event_schema()
 
         # Match state
-        self._rng: random.Random | None = None
         self._terminal: bool = False
-        self._race_number: int = 0
+        self._game_number: int = 0
         self._match_scores: dict[str, float] = {p: 0.0 for p in self._player_ids}
         self._highlight_turns: list[int] = []
+        self._turn_number: int = 0  # global turn counter for telemetry
 
-        # Per-race state
-        self._track: list[dict] = []
-        self._positions: dict[str, int] = {}
-        self._turn_counts: dict[str, int] = {}
+        # Per-player state
+        self._states: dict[str, _PlayerState] = {}
         self._finish_order: list[str] = []
         self._eliminated: set[str] = set()
-        self._blocked_spaces: dict[int, str] = {}  # space -> blocker_id
-        self._stumbles: dict[str, int] = {}  # player -> stumble count
-        self._turn_number: int = 0
 
-        # Per-race stats (for telemetry)
-        self._player_stats: dict[str, dict] = {}
-
-        # Thread safety for concurrent access
+        # Thread safety
         self._lock = threading.Lock()
-
-        # Concurrent mode: track which player should go next
-        # In concurrent mode, ALL players go simultaneously
         self._concurrent = True
 
     @property
@@ -145,110 +133,97 @@ class RollerDerbyEvent(Event):
     def concurrent(self) -> bool:
         return self._concurrent
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
     def reset(self, seed: int) -> None:
-        self._rng = random.Random(seed)
-        self._race_number = 0
+        self._base_seed = seed
+        self._game_number = 0
         self._terminal = False
         self._match_scores = {p: 0.0 for p in self._player_ids}
         self._highlight_turns = []
         self._turn_number = 0
-        self._start_new_race()
+        self._eliminated = set()
+        self._start_new_game()
 
-    def _start_new_race(self) -> None:
-        self._race_number += 1
-        if self._race_number > self._races_per_match:
+    def _start_new_game(self) -> None:
+        self._game_number += 1
+        if self._game_number > self._games_per_match:
             self._terminal = True
             return
 
-        self._track = _generate_track(self._rng)
-        self._positions = {p: 0 for p in self._player_ids}
-        self._turn_counts = {p: 0 for p in self._player_ids}
         self._finish_order = []
-        self._eliminated = set()
-        self._blocked_spaces = {}
-        self._stumbles = {p: 0 for p in self._player_ids}
-        self._player_stats = {
-            p: {
-                "sprints": 0, "jogs": 0, "stumbles": 0,
-                "hurdles_correct": 0, "hurdles_wrong": 0,
-                "blocks_set": 0, "blocks_hit": 0,
-                "dodges": 0, "turns_taken": 0,
-                "finish_position": None, "finish_time_turns": None,
-            }
-            for p in self._player_ids
-        }
+        self._states = {}
+        for pid in self._player_ids:
+            rng = random.Random(hash((self._base_seed, pid, self._game_number)))
+            ps = _PlayerState(rng)
+            if pid not in self._eliminated:
+                ps.start_round()
+            else:
+                # Zero-fill eliminated players
+                ps.finished = True
+                for cat in ALL_CATEGORIES:
+                    ps.scorecard[cat] = 0
+            self._states[pid] = ps
 
-    def _finish_race(self) -> None:
-        """Score the completed race and start the next."""
-        # Players who didn't finish: rank by position (higher = better)
-        remaining = [
-            p for p in self._player_ids
-            if p not in self._finish_order and p not in self._eliminated
-        ]
-        remaining.sort(key=lambda p: self._positions[p], reverse=True)
-        final_order = list(self._finish_order) + remaining
+    def _finish_game(self) -> None:
+        """Score the completed game and start the next."""
+        # Calculate totals
+        totals = {p: self._states[p].calculate_total() for p in self._player_ids}
 
-        # Add eliminated players last
-        elim = [p for p in self._player_ids if p in self._eliminated]
-        final_order.extend(elim)
+        # Store game total
+        for pid in self._player_ids:
+            self._states[pid].game_scores.append(totals[pid])
 
-        # Rank points: N-1 for 1st, N-2 for 2nd, ..., 0 for last
-        for i, pid in enumerate(final_order):
-            rank_pts = float(self._num_players - 1 - i)
-            self._match_scores[pid] += rank_pts
-            self._player_stats[pid]["finish_position"] = i + 1
+        # Rank-based scoring with tie-sharing
+        ranked = sorted(self._player_ids, key=lambda p: totals[p], reverse=True)
+        i = 0
+        while i < len(ranked):
+            j = i + 1
+            while j < len(ranked) and totals[ranked[j]] == totals[ranked[i]]:
+                j += 1
+            points_sum = sum(self._num_players - 1 - k for k in range(i, j))
+            shared = points_sum / (j - i)
+            for k in range(i, j):
+                self._match_scores[ranked[k]] += shared
+            i = j
 
-        # Finish bonuses for top finishers
+        # Finish bonuses for first N completers
         for i, bonus in enumerate(self._finish_bonus):
             if i < len(self._finish_order):
                 pid = self._finish_order[i]
                 self._match_scores[pid] += float(bonus)
 
-        self._start_new_race()
+        self._start_new_game()
 
     # ------------------------------------------------------------------
-    # Player state (thread-safe reads)
+    # Player state (thread-safe)
     # ------------------------------------------------------------------
 
     def player_finished(self, player_id: str) -> bool:
         with self._lock:
-            return (
-                player_id in self._finish_order
-                or player_id in self._eliminated
-            )
+            return self._states[player_id].finished
 
     def race_over(self) -> bool:
-        """Check if the current race is complete."""
         with self._lock:
-            active = [
-                p for p in self._player_ids
-                if p not in self._finish_order and p not in self._eliminated
-            ]
-            return len(active) == 0
-
-    def get_player_obstacle(self, player_id: str) -> dict:
-        with self._lock:
-            pos = self._positions[player_id]
-            if pos >= TRACK_LENGTH:
-                return {"type": "finish", "position": pos}
-            return dict(self._track[pos])
+            return all(self._states[p].finished for p in self._player_ids)
 
     # ------------------------------------------------------------------
-    # Event ABC implementation
+    # Event ABC
     # ------------------------------------------------------------------
 
     def current_player(self) -> str:
-        # In concurrent mode, this cycles through active players.
-        # The tournament engine's concurrent runner doesn't use this.
+        # In concurrent mode the tournament runner doesn't use this.
+        # Round-robin by turns taken among active players.
         with self._lock:
             active = [
                 p for p in self._player_ids
-                if p not in self._finish_order and p not in self._eliminated
+                if not self._states[p].finished and p not in self._eliminated
             ]
             if not active:
                 return self._player_ids[0]
-            # Round-robin by turn count
-            return min(active, key=lambda p: self._turn_counts[p])
+            return min(active, key=lambda p: self._states[p].turns_taken)
 
     def get_prompt(self, player_id: str) -> str:
         with self._lock:
@@ -256,106 +231,101 @@ class RollerDerbyEvent(Event):
 
     def _build_prompt(self, player_id: str) -> str:
         """Build prompt for a player. Must hold self._lock."""
+        ps = self._states[player_id]
         label = self._player_labels[player_id]
-        pos = self._positions[player_id]
 
         lines = [
-            f"ROLLER DERBY RACE {self._race_number}/{self._races_per_match}",
-            f"You are Racer {label}. Track length: {TRACK_LENGTH}. Your position: {pos}/{TRACK_LENGTH}.",
+            f"You are playing Roller Derby (Yahtzee racing) with {self._num_players} players.",
+            f"You are Player {label}.",
             "",
-            "STANDINGS:",
         ]
 
-        # Show all positions
+        if self._games_per_match > 1:
+            lines.append(f"Game {self._game_number} of {self._games_per_match}.")
+            score_parts = [f"{self._player_labels[p]}: {self._match_scores[p]:.0f}" for p in self._player_ids]
+            lines.append(f"Match scores: {', '.join(score_parts)}")
+            lines.append("")
+
+        lines.append(f"Round {ps.round_number} of {TOTAL_ROUNDS}")
+        lines.append(f"YOUR DICE (Roll {ps.roll_number} of 3): {self._format_dice(ps.dice)}")
+        lines.append("")
+
+        # Show available categories with potential scores
+        available = ps.available_categories()
+        lines.append("Available categories (what your current dice would score):")
+        for cat in available:
+            pts = score_category(ps.dice, cat)
+            lines.append(f"  {cat}: {pts}")
+        lines.append("")
+
+        # Show filled categories
+        filled = [(cat, v) for cat, v in ps.scorecard.items() if v is not None]
+        if filled:
+            lines.append("Your scorecard (filled categories):")
+            upper_total = 0
+            for cat in UPPER_CATEGORIES:
+                v = ps.scorecard[cat]
+                if v is not None:
+                    lines.append(f"  {cat}: {v}")
+                    upper_total += v
+            if upper_total > 0:
+                lines.append(f"  (upper subtotal: {upper_total}/63"
+                             f"{' — bonus earned!' if upper_total >= UPPER_BONUS_THRESHOLD else ''})")
+            for cat in LOWER_CATEGORIES:
+                v = ps.scorecard[cat]
+                if v is not None:
+                    lines.append(f"  {cat}: {v}")
+            if ps.yahtzee_bonuses > 0:
+                lines.append(f"  yahtzee bonuses: {ps.yahtzee_bonuses} x {YAHTZEE_BONUS_VALUE}")
+            lines.append(f"  RUNNING TOTAL: {ps.calculate_total()}")
+            lines.append("")
+
+        # Opponents — only totals + progress
+        lines.append("Opponent progress:")
         for pid in self._player_ids:
-            plabel = self._player_labels[pid]
-            ppos = self._positions[pid]
-            status = ""
-            if pid in self._finish_order:
-                rank = self._finish_order.index(pid) + 1
-                status = f" [FINISHED #{rank}]"
-            elif pid in self._eliminated:
-                status = " [DNF]"
-            marker = " <-- YOU" if pid == player_id else ""
-            lines.append(f"  Racer {plabel}: position {ppos}{status}{marker}")
-
+            if pid != player_id:
+                opp = self._states[pid]
+                opp_label = self._player_labels[pid]
+                opp_total = opp.calculate_total()
+                filled_count = sum(1 for v in opp.scorecard.values() if v is not None)
+                status = ""
+                if opp.finished:
+                    idx = opp.finish_order_idx
+                    if idx is not None:
+                        status = f" [FINISHED #{idx + 1}]"
+                    else:
+                        status = " [DONE]"
+                lines.append(f"  Player {opp_label}: {opp_total} ({filled_count}/13 categories){status}")
         lines.append("")
 
-        if pos >= TRACK_LENGTH:
-            lines.append("You have finished the race!")
-            return "\n".join(lines)
-
-        segment = self._track[pos]
-        otype = segment["type"]
-
-        lines.append(f"OBSTACLE at position {pos}: {otype.upper()}")
+        # Legal actions
+        if ps.roll_number < 3:
+            lines.append("You may REROLL or SCORE:")
+            lines.append('  To reroll: {"action": "reroll", "keep": [0, 2, 4], "reasoning": "..."}')
+            lines.append("    (keep = list of dice INDICES 0-4 to keep; unkept dice are re-rolled)")
+            lines.append("    (keep all 5 to keep your current dice and use your roll)")
+            lines.append('  To score: {"action": "score", "category": "full_house", "reasoning": "..."}')
+        else:
+            lines.append("Roll 3 of 3 — you MUST score now:")
+            lines.append('  {"action": "score", "category": "full_house", "reasoning": "..."}')
         lines.append("")
 
-        if otype == "straight":
-            pct = int(segment["sprint_success"] * 100)
-            lines.extend([
-                "Straightaway ahead. Choose your pace:",
-                f'  "jog"    — advance 1 space (guaranteed)',
-                f'  "sprint" — advance 2 spaces ({pct}% success, otherwise stumble: +0)',
-                "",
-                'Respond with ONLY a JSON object:',
-                '  {"action": "jog", "reasoning": "..."}',
-                '  {"action": "sprint", "reasoning": "..."}',
-            ])
+        # Strategy tips
+        lines.append("STRATEGY TIPS:")
+        upper_so_far = sum(ps.scorecard[c] for c in UPPER_CATEGORIES if ps.scorecard[c] is not None)
+        upper_remaining = [c for c in UPPER_CATEGORIES if ps.scorecard[c] is None]
+        if upper_remaining:
+            needed = max(0, UPPER_BONUS_THRESHOLD - upper_so_far)
+            lines.append(f"- Upper section: {upper_so_far}/63 toward bonus (+35). Need {needed} more from {len(upper_remaining)} remaining categories.")
+        lines.append("- Yahtzee (50 pts) is the highest single category. Additional yahtzees earn +100 bonus each.")
+        lines.append("- Consider saving 'chance' as a fallback for bad rolls later.")
+        lines.append("- Large straight (40) > full house (25) — worth pursuing if you have 4 in sequence.")
+        lines.append("")
+        lines.append("SPEED MATTERS. Faster responses = more turns = finish first = bonus points.")
+        lines.append("Keep reasoning brief.")
+        lines.append("")
 
-        elif otype == "hurdle":
-            lines.extend([
-                f'Hurdle! Answer correctly to clear it:',
-                f'  {segment["question"]}',
-                "",
-                "Correct answer: advance 2 spaces.",
-                "Wrong answer: stumble, advance 0.",
-                "",
-                'Respond with ONLY a JSON object:',
-                '  {"action": "answer", "value": <your_number>, "reasoning": "..."}',
-            ])
-
-        elif otype == "curve":
-            pct = int(segment["inside_success"] * 100)
-            lines.extend([
-                "Sharp curve ahead. Choose your line:",
-                f'  "inside"  — cut the corner, advance 2 ({pct}% success, otherwise stumble: +0)',
-                f'  "outside" — take it wide, advance 1 (guaranteed)',
-                "",
-                'Respond with ONLY a JSON object:',
-                '  {"action": "inside", "reasoning": "..."}',
-                '  {"action": "outside", "reasoning": "..."}',
-            ])
-
-        elif otype == "jam":
-            # Check if there's a block on this space
-            blocker = self._blocked_spaces.get(pos)
-            if blocker and blocker != player_id:
-                lines.extend([
-                    f"JAM ZONE! Racer {self._player_labels[blocker]} is blocking here!",
-                    '  "dodge"  — slip past, advance 1 space',
-                    '  "push"   — shove through, advance 2 but 50% chance of falling (+0)',
-                    "",
-                    'Respond with ONLY a JSON object:',
-                    '  {"action": "dodge", "reasoning": "..."}',
-                    '  {"action": "push", "reasoning": "..."}',
-                ])
-            else:
-                lines.extend([
-                    "Jam zone. Choose your strategy:",
-                    '  "block" — hold position (advance 0), set a trap for the next racer',
-                    '  "dodge" — skate through, advance 1 space',
-                    "",
-                    'Respond with ONLY a JSON object:',
-                    '  {"action": "block", "reasoning": "..."}',
-                    '  {"action": "dodge", "reasoning": "..."}',
-                ])
-
-        lines.extend([
-            "",
-            "SPEED MATTERS. Faster responses = more turns = more distance.",
-            "Keep reasoning brief.",
-        ])
+        lines.append('Respond with ONLY a JSON object. Example: {"action": "score", "category": "threes", "reasoning": "..."}')
 
         return "\n".join(lines)
 
@@ -373,41 +343,44 @@ class RollerDerbyEvent(Event):
 
     def _validate(self, player_id: str, action: dict) -> ValidationResult:
         """Validate action. Must hold self._lock."""
-        if player_id in self._finish_order or player_id in self._eliminated:
-            return ValidationResult(False, "Player has already finished or been eliminated")
+        ps = self._states[player_id]
 
-        pos = self._positions[player_id]
-        if pos >= TRACK_LENGTH:
-            return ValidationResult(False, "Already at finish line")
+        if ps.finished:
+            return ValidationResult(False, "Player has already finished all rounds")
 
-        segment = self._track[pos]
-        otype = segment["type"]
-        act = action.get("action", "").lower().strip()
+        act = action.get("action")
 
-        if otype == "straight":
-            if act not in ("jog", "sprint"):
-                return ValidationResult(False, f"Invalid action '{act}' for straight. Choose 'jog' or 'sprint'.")
+        if act == "reroll":
+            if ps.roll_number >= 3:
+                return ValidationResult(False, "You have used all 3 rolls. You must score now.")
+            keep = action.get("keep")
+            if not isinstance(keep, list):
+                return ValidationResult(False, "'keep' must be a list of dice indices (0-4).")
+            for idx in keep:
+                if not isinstance(idx, int) or idx < 0 or idx > 4:
+                    return ValidationResult(False, f"Invalid dice index {idx}. Must be 0-4.")
+            if len(keep) != len(set(keep)):
+                return ValidationResult(False, "Duplicate indices in 'keep' list.")
+            return ValidationResult(True)
 
-        elif otype == "hurdle":
-            if act != "answer":
-                return ValidationResult(False, f"Invalid action '{act}' for hurdle. Use 'answer' with a 'value'.")
-            if "value" not in action:
-                return ValidationResult(False, "Hurdle requires 'value' field with your numeric answer.")
+        if act == "score":
+            category = action.get("category")
+            if category not in ALL_CATEGORIES:
+                return ValidationResult(
+                    False,
+                    f"Unknown category '{category}'. Valid: {', '.join(ALL_CATEGORIES)}",
+                )
+            if ps.scorecard[category] is not None:
+                return ValidationResult(
+                    False,
+                    f"Category '{category}' is already filled with {ps.scorecard[category]} points.",
+                )
+            return ValidationResult(True)
 
-        elif otype == "curve":
-            if act not in ("inside", "outside"):
-                return ValidationResult(False, f"Invalid action '{act}' for curve. Choose 'inside' or 'outside'.")
-
-        elif otype == "jam":
-            blocker = self._blocked_spaces.get(pos)
-            if blocker and blocker != player_id:
-                if act not in ("dodge", "push"):
-                    return ValidationResult(False, f"Invalid action '{act}' for blocked jam. Choose 'dodge' or 'push'.")
-            else:
-                if act not in ("block", "dodge"):
-                    return ValidationResult(False, f"Invalid action '{act}' for jam. Choose 'block' or 'dodge'.")
-
-        return ValidationResult(True)
+        return ValidationResult(
+            False,
+            f"Unknown action '{act}'. Expected 'reroll' or 'score'.",
+        )
 
     def apply_action(self, player_id: str, action: dict) -> None:
         with self._lock:
@@ -415,130 +388,99 @@ class RollerDerbyEvent(Event):
 
     def _apply(self, player_id: str, action: dict) -> None:
         """Apply action. Must hold self._lock."""
-        pos = self._positions[player_id]
-        segment = self._track[pos]
-        otype = segment["type"]
-        act = action.get("action", "").lower().strip()
-        advance = 0
-        stats = self._player_stats[player_id]
-
-        # Use per-player sub-RNG for deterministic but independent outcomes
-        player_rng = random.Random(
-            hash((self._rng.getstate()[1][0], player_id, self._turn_counts[player_id]))
-        )
-
-        if otype == "straight":
-            if act == "jog":
-                advance = 1
-                stats["jogs"] += 1
-            elif act == "sprint":
-                stats["sprints"] += 1
-                if player_rng.random() < segment["sprint_success"]:
-                    advance = 2
-                else:
-                    stats["stumbles"] += 1
-                    self._stumbles[player_id] += 1
-
-        elif otype == "hurdle":
-            given = action.get("value")
-            try:
-                given = int(given)
-            except (TypeError, ValueError):
-                given = None
-            if given == segment["answer"]:
-                advance = 2
-                stats["hurdles_correct"] += 1
-            else:
-                stats["hurdles_wrong"] += 1
-                stats["stumbles"] += 1
-                self._stumbles[player_id] += 1
-
-        elif otype == "curve":
-            if act == "outside":
-                advance = 1
-            elif act == "inside":
-                if player_rng.random() < segment["inside_success"]:
-                    advance = 2
-                else:
-                    stats["stumbles"] += 1
-                    self._stumbles[player_id] += 1
-
-        elif otype == "jam":
-            blocker = self._blocked_spaces.get(pos)
-            if blocker and blocker != player_id:
-                # Hitting a block
-                stats["blocks_hit"] += 1
-                if act == "dodge":
-                    advance = 1
-                    stats["dodges"] += 1
-                elif act == "push":
-                    if player_rng.random() < 0.5:
-                        advance = 2
-                    else:
-                        stats["stumbles"] += 1
-                        self._stumbles[player_id] += 1
-                # Clear the block after it's been hit
-                if pos in self._blocked_spaces and self._blocked_spaces[pos] == blocker:
-                    del self._blocked_spaces[pos]
-            else:
-                if act == "block":
-                    advance = 0
-                    self._blocked_spaces[pos] = player_id
-                    stats["blocks_set"] += 1
-                elif act == "dodge":
-                    advance = 1
-                    stats["dodges"] += 1
-
-        self._positions[player_id] = pos + advance
-        self._turn_counts[player_id] += 1
-        stats["turns_taken"] += 1
+        ps = self._states[player_id]
+        act = action["action"]
         self._turn_number += 1
+        ps.turns_taken += 1
 
-        # Check for finish
-        if self._positions[player_id] >= TRACK_LENGTH:
-            self._positions[player_id] = TRACK_LENGTH
-            if player_id not in self._finish_order:
-                self._finish_order.append(player_id)
-                stats["finish_position"] = len(self._finish_order)
-                stats["finish_time_turns"] = stats["turns_taken"]
-                # Highlight: crossing the finish line
+        if act == "reroll":
+            keep_indices = action["keep"]
+            new_dice = list(ps.dice)
+            for i in range(5):
+                if i not in keep_indices:
+                    new_dice[i] = ps.rng.randint(1, 6)
+            ps.dice = new_dice
+            ps.roll_number += 1
+
+        elif act == "score":
+            category = action["category"]
+            dice = ps.dice
+            points = score_category(dice, category)
+
+            # Yahtzee bonus
+            is_yahtzee = all(d == dice[0] for d in dice)
+            if is_yahtzee and category != "yahtzee":
+                if ps.scorecard["yahtzee"] is not None and ps.scorecard["yahtzee"] > 0:
+                    ps.yahtzee_bonuses += 1
+                    self._highlight_turns.append(self._turn_number)
+            elif is_yahtzee and category == "yahtzee":
                 self._highlight_turns.append(self._turn_number)
 
-        # Check if race is over (all finished or eliminated)
-        active = [
-            p for p in self._player_ids
-            if p not in self._finish_order and p not in self._eliminated
-        ]
-        if not active:
-            self._finish_race()
+            ps.scorecard[category] = points
+
+            # Advance to next round or finish
+            if ps.round_number >= TOTAL_ROUNDS:
+                # All 13 categories scored
+                ps.finished = True
+                ps.finish_order_idx = len(self._finish_order)
+                self._finish_order.append(player_id)
+                self._highlight_turns.append(self._turn_number)
+            else:
+                ps.start_round()
+
+            # Check if game is over (all finished)
+            if all(self._states[p].finished for p in self._player_ids):
+                self._finish_game()
 
     def forfeit_turn(self, player_id: str) -> None:
-        """On violation/timeout, player doesn't advance."""
+        """On violation/timeout, auto-score best available category."""
         with self._lock:
-            self._turn_counts[player_id] += 1
-            self._player_stats[player_id]["turns_taken"] += 1
+            ps = self._states[player_id]
+            if ps.finished:
+                return
             self._turn_number += 1
+            ps.turns_taken += 1
+
+            available = ps.available_categories()
+            if not available:
+                return
+            best_cat = max(available, key=lambda c: score_category(ps.dice, c))
+            # Inline the scoring (can't call _apply since we already hold lock)
+            points = score_category(ps.dice, best_cat)
+            ps.scorecard[best_cat] = points
+
+            if ps.round_number >= TOTAL_ROUNDS:
+                ps.finished = True
+                ps.finish_order_idx = len(self._finish_order)
+                self._finish_order.append(player_id)
+            else:
+                ps.start_round()
+
+            if all(self._states[p].finished for p in self._player_ids):
+                self._finish_game()
 
     def eliminate_player(self, player_id: str) -> None:
-        """Remove player from the race (stuck-loop)."""
+        """Remove player — zero-fill remaining categories, mark finished."""
         with self._lock:
             self._eliminated.add(player_id)
-            active = [
-                p for p in self._player_ids
-                if p not in self._finish_order and p not in self._eliminated
-            ]
-            if not active:
-                self._finish_race()
+            ps = self._states[player_id]
+            if not ps.finished:
+                for cat in ALL_CATEGORIES:
+                    if ps.scorecard[cat] is None:
+                        ps.scorecard[cat] = 0
+                ps.finished = True
+                # Don't add to finish_order — eliminated, not finished
+
+            if all(self._states[p].finished for p in self._player_ids):
+                self._finish_game()
 
     def force_forfeit_match(self, player_id: str) -> None:
-        """Force end of match."""
         with self._lock:
             self._terminal = True
 
     def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
-        """Award remaining races to non-forfeiting players."""
         with self._lock:
-            remaining = self._races_per_match - self._race_number + 1
+            remaining = self._games_per_match - self._game_number + 1
             pts = float(self._num_players - 1)
             for pid in self._player_ids:
                 if pid != forfeiting_player_id:
@@ -551,23 +493,54 @@ class RollerDerbyEvent(Event):
 
     def get_state_snapshot(self) -> dict:
         with self._lock:
+            scorecards_out = {}
+            for pid in self._player_ids:
+                ps = self._states[pid]
+                sc = dict(ps.scorecard)
+                sc["_upper_subtotal"] = sum(
+                    v for c in UPPER_CATEGORIES if (v := ps.scorecard[c]) is not None
+                )
+                sc["_upper_bonus"] = UPPER_BONUS_VALUE if sc["_upper_subtotal"] >= UPPER_BONUS_THRESHOLD else 0
+                sc["_yahtzee_bonuses"] = ps.yahtzee_bonuses
+                sc["_total"] = ps.calculate_total()
+                scorecards_out[pid] = sc
+
             return {
-                "race_number": self._race_number,
-                "races_per_match": self._races_per_match,
-                "track": [dict(s) for s in self._track],
-                "positions": dict(self._positions),
-                "turn_counts": dict(self._turn_counts),
-                "finish_order": list(self._finish_order),
-                "eliminated": list(self._eliminated),
-                "blocked_spaces": dict(self._blocked_spaces),
-                "stumbles": dict(self._stumbles),
+                "game_number": self._game_number,
+                "games_per_match": self._games_per_match,
+                "total_rounds": TOTAL_ROUNDS,
+                "turn_number": self._turn_number,
                 "terminal": self._terminal,
                 "match_scores": dict(self._match_scores),
-                "player_stats": {p: dict(self._player_stats[p]) for p in self._player_ids},
+                "finish_order": list(self._finish_order),
+                "eliminated": sorted(self._eliminated),
                 "player_labels": dict(self._player_labels),
-                "track_length": TRACK_LENGTH,
+                "players": {
+                    pid: {
+                        "round": self._states[pid].round_number,
+                        "roll_number": self._states[pid].roll_number,
+                        "dice": list(self._states[pid].dice),
+                        "finished": self._states[pid].finished,
+                        "finish_order_idx": self._states[pid].finish_order_idx,
+                        "turns_taken": self._states[pid].turns_taken,
+                    }
+                    for pid in self._player_ids
+                },
+                "scorecards": scorecards_out,
+                "potential_scores": {
+                    p: {
+                        cat: score_category(self._states[p].dice, cat)
+                        for cat in self._states[p].available_categories()
+                    }
+                    for p in self._player_ids
+                    if not self._states[p].finished
+                },
             }
 
     def get_highlight_hands(self) -> list[int]:
         with self._lock:
             return list(self._highlight_turns)
+
+    @staticmethod
+    def _format_dice(dice: list[int]) -> str:
+        return " ".join(f"[{d}]" for d in dice)

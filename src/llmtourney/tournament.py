@@ -42,10 +42,11 @@ from llmtourney.events.reversi.engine import ReversiEvent
 from llmtourney.events.bullshit.engine import BullshitEvent
 from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 from llmtourney.events.yahtzee.engine import YahtzeeEvent
-from llmtourney.events.rollerderby.engine import RollerDerbyEvent
+from llmtourney.events.rollerderby.engine import ConcurrentYahtzeeEvent
+from llmtourney.events.gauntlet.engine import GauntletEvent
 
-_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby"}
-_CONCURRENT_EVENTS = {"rollerderby"}
+_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet"}
+_CONCURRENT_EVENTS = {"rollerderby", "gauntlet"}
 
 _STRATEGY_REGISTRY = {
     "always_call": always_call_strategy,
@@ -297,7 +298,14 @@ class TournamentEngine:
                 mode=event_cfg.mode,
             )
         if event_name == "rollerderby":
-            return RollerDerbyEvent(
+            return ConcurrentYahtzeeEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+                finish_bonus=event_cfg.finish_bonus,
+                race_timeout_s=event_cfg.race_timeout_s,
+            )
+        if event_name == "gauntlet":
+            return GauntletEvent(
                 races_per_match=event_cfg.games_per_match,
                 num_players=num_players,
                 finish_bonus=event_cfg.finish_bonus,

@@ -44,7 +44,7 @@ def resolve_jsonl_path(arg: str | None) -> Path:
     if p.exists():
         return p
     # Try with event prefixes
-    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-", "rollerderby-", "yahtzee-"):
+    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-", "gauntlet-", "rollerderby-", "yahtzee-"):
         p = TELEMETRY_DIR / f"{prefix}{arg}.jsonl"
         if p.exists():
             return p
@@ -70,10 +70,12 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "bullshit"
     if stem.startswith("liarsdice"):
         return "liarsdice"
+    if stem.startswith("gauntlet"):
+        return "gauntlet"
     if stem.startswith("rollerderby"):
         return "rollerderby"
     if stem.startswith("yahtzee"):
-        return "rollerderby"
+        return "yahtzee"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -7733,7 +7735,7 @@ init();
 
 # ── Roller Derby HTML/CSS/JS ────────────────────────────────────
 
-ROLLERDERBY_HTML_PAGE = r"""<!DOCTYPE html>
+GAUNTLET_HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10034,7 +10036,8 @@ def main():
             "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE,
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
             "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
-            "rollerderby": ROLLERDERBY_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
+            "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": YAHTZEE_HTML_PAGE,
+            "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
@@ -10049,10 +10052,10 @@ def main():
         event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "rollerderby": ROLLERDERBY_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "rollerderby": "Roller Derby", "yahtzee": "Roller Derby"}.get(event_type, event_type)
+        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee"}.get(event_type, event_type)
         print(f"{label} Web Spectator")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")

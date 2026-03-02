@@ -5,10 +5,10 @@ tournament:
   version: "2.1.0"
 
 # ── S2 Midtier League v2.1 ──────────────────────────────────────
-# 7-seat multiplayer league. Four events.
+# 7-seat multiplayer league. Five events.
 # Dropped mistral-medium-3.1 and qwen3-235b (repeated DQs).
 # Liar's Dice trimmed to 1 round — elimination produces natural ranking.
-# Roller Derby: concurrent racing, 3 races, finish bonuses.
+# Roller Derby: concurrent Yahtzee racing. Gauntlet: obstacle-course racing.
 
 models:
   gpt-4o:
@@ -92,6 +92,14 @@ events:
     rounds: 1
 
   rollerderby:
+    weight: 1
+    games_per_match: 1
+    rounds: 1
+    mode: concurrent
+    finish_bonus: [3, 2, 1]
+    race_timeout_s: 300
+
+  gauntlet:
     weight: 1
     games_per_match: 3
     rounds: 1

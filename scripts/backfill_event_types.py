@@ -20,13 +20,14 @@ from pymongo import MongoClient, UpdateMany
 EVENT_PREFIXES = [
     ("connectfour-", "connectfour"),
     ("tictactoe-", "tictactoe"),
+    ("gauntlet-", "gauntlet"),
     ("rollerderby-", "rollerderby"),
     ("liarsdice-", "liarsdice"),
     ("bullshit-", "bullshit"),
     ("checkers-", "checkers"),
     ("scrabble-", "scrabble"),
     ("reversi-", "reversi"),
-    ("yahtzee-", "rollerderby"),  # legacy prefix → new canonical name
+    ("yahtzee-", "yahtzee"),
     ("holdem-", "holdem"),
 ]
 
@@ -87,32 +88,7 @@ def main():
 
         print(f"  Summary: {fixed} fixed, {unfixable} unfixable")
 
-    # Also fix any "yahtzee" → "rollerderby" in non-unknown docs
-    for collection_name in ("turns", "matches"):
-        coll = db[collection_name]
-        yahtzee_count = coll.count_documents({"event_type": "yahtzee"})
-        if yahtzee_count > 0:
-            if args.dry_run:
-                print(f"\n{collection_name}: [DRY RUN] Would rename {yahtzee_count} 'yahtzee' → 'rollerderby'")
-            else:
-                result = coll.update_many(
-                    {"event_type": "yahtzee"},
-                    {"$set": {"event_type": "rollerderby"}},
-                )
-                print(f"\n{collection_name}: Renamed {result.modified_count} 'yahtzee' → 'rollerderby'")
-
-    # Fix model stats: rename games.yahtzee → games.rollerderby
-    models_coll = db["models"]
-    yahtzee_models = list(models_coll.find({"games.yahtzee": {"$exists": True}}))
-    if yahtzee_models:
-        if args.dry_run:
-            print(f"\nmodels: [DRY RUN] Would rename games.yahtzee → games.rollerderby for {len(yahtzee_models)} models")
-        else:
-            result = models_coll.update_many(
-                {"games.yahtzee": {"$exists": True}},
-                {"$rename": {"games.yahtzee": "games.rollerderby"}},
-            )
-            print(f"\nmodels: Renamed games.yahtzee → games.rollerderby for {result.modified_count} models")
+    # NOTE: yahtzee and rollerderby are now separate events (no renaming needed)
 
     client.close()
     print("\nDone.")

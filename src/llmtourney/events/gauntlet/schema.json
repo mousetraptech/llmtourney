@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gauntlet Action",
+  "oneOf": [
+    {
+      "title": "Choose",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Answer",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "answer" },
+        "value": { "type": "integer" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "value"],
+      "additionalProperties": false
+    }
+  ]
+}

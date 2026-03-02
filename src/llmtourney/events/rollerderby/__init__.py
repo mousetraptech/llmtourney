@@ -1,3 +1,3 @@
-from llmtourney.events.rollerderby.engine import RollerDerbyEvent
+from llmtourney.events.rollerderby.engine import ConcurrentYahtzeeEvent
 
-__all__ = ["RollerDerbyEvent"]
+__all__ = ["ConcurrentYahtzeeEvent"]
