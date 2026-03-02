@@ -8660,6 +8660,7 @@ let playerPending = {};    // pid -> true if waiting for response
 let shotClock = {
   timeLimitMs: 0,
   lastLatency: {},
+  allLatencies: {},  // pid -> [ms, ms, ...]
   strikes: {},
   strikeLimit: null,
 };
@@ -8830,6 +8831,7 @@ function buildScorecard() {
   addSectionRow(body, 'LOWER SECTION');
   LOWER.forEach(cat => addCatRow(body, cat));
   addSpecialRow(body, '_yahtzee_bonuses', 'Yahtzee Bonus');
+  addSpecialRow(body, '_finish_bonus', 'Finisher Bonus', true);
   addTotalRow(body);
 }
 
@@ -8920,14 +8922,17 @@ function renderClocks() {
     const cell = document.querySelector('td[data-pid="' + pid + '"][data-clock="1"]');
     if (!cell) return;
     cell.style.color = '';
-    if (shotClock.lastLatency[pid] !== undefined) {
-      const lat = shotClock.lastLatency[pid] / 1000;
-      cell.textContent = lat.toFixed(1) + 's';
+    cell.innerHTML = '';
+    const lats = shotClock.allLatencies[pid];
+    if (lats && lats.length > 0) {
+      const avg = lats.reduce((a, b) => a + b, 0) / lats.length / 1000;
+      const lo = Math.min(...lats) / 1000;
+      const hi = Math.max(...lats) / 1000;
+      cell.innerHTML = avg.toFixed(1) + 's <span style="font-size:10px">(<span style="color:var(--green)">' + lo.toFixed(1) + '</span>/<span style="color:var(--red)">' + hi.toFixed(1) + '</span>)</span>';
       cell.className = 'clock-idle';
       const strikes = shotClock.strikes[pid] || 0;
       if (strikes > 0) {
-        cell.textContent += ' \u26A0' + strikes;
-        cell.style.color = 'var(--yellow)';
+        cell.innerHTML += ' <span style="color:var(--yellow)">\u26A0' + strikes + '</span>';
       }
     } else {
       cell.textContent = '--';
@@ -9061,13 +9066,17 @@ function renderState(snap) {
     });
 
     // Special rows
-    ['_upper_subtotal', '_upper_bonus', '_yahtzee_bonuses', '_total'].forEach(key => {
+    ['_upper_subtotal', '_upper_bonus', '_yahtzee_bonuses', '_finish_bonus', '_total'].forEach(key => {
       const cell = document.querySelector(`td[data-pid="${pid}"][data-special="${key}"]`);
       if (!cell) return;
       const val = sc[key];
       cell.className = isFinished ? 'finished-col' : (isActive ? 'active-col' : '');
       if (key === '_yahtzee_bonuses') {
         cell.textContent = val ? `+${val * 100}` : '';
+      } else if (key === '_finish_bonus') {
+        cell.textContent = val ? `+${val}` : '';
+        if (val > 0) cell.style.color = 'var(--green)';
+        else cell.style.color = '';
       } else if (val !== undefined && val !== null) {
         cell.textContent = val;
       } else {
@@ -9285,6 +9294,8 @@ evtSource.onmessage = (event) => {
     if (data.strike_limit) shotClock.strikeLimit = data.strike_limit;
     if (data.player_id && data.latency_ms !== undefined) {
       shotClock.lastLatency[data.player_id] = data.latency_ms;
+      if (!shotClock.allLatencies[data.player_id]) shotClock.allLatencies[data.player_id] = [];
+      shotClock.allLatencies[data.player_id].push(data.latency_ms);
       // This player just responded — no longer pending
       playerPending[data.player_id] = false;
     }

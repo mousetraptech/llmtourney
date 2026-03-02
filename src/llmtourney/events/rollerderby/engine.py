@@ -172,7 +172,13 @@ class ConcurrentYahtzeeEvent(Event):
         # Calculate totals
         totals = {p: self._states[p].calculate_total() for p in self._player_ids}
 
-        # Store game total
+        # Add finish bonuses to game scores (before ranking)
+        for i, bonus in enumerate(self._finish_bonus):
+            if i < len(self._finish_order):
+                pid = self._finish_order[i]
+                totals[pid] += bonus
+
+        # Store game total (includes finish bonus)
         for pid in self._player_ids:
             self._states[pid].game_scores.append(totals[pid])
 
@@ -188,12 +194,6 @@ class ConcurrentYahtzeeEvent(Event):
             for k in range(i, j):
                 self._match_scores[ranked[k]] += shared
             i = j
-
-        # Finish bonuses for first N completers
-        for i, bonus in enumerate(self._finish_bonus):
-            if i < len(self._finish_order):
-                pid = self._finish_order[i]
-                self._match_scores[pid] += float(bonus)
 
         self._start_new_game()
 
@@ -321,7 +321,8 @@ class ConcurrentYahtzeeEvent(Event):
         lines.append("- Consider saving 'chance' as a fallback for bad rolls later.")
         lines.append("- Large straight (40) > full house (25) — worth pursuing if you have 4 in sequence.")
         lines.append("")
-        lines.append("SPEED MATTERS. Faster responses = more turns = finish first = bonus points.")
+        bonus_desc = ", ".join(f"{i+1}{'st' if i==0 else 'nd' if i==1 else 'rd' if i==2 else 'th'}: +{b}" for i, b in enumerate(self._finish_bonus))
+        lines.append(f"SPEED MATTERS. The first players to complete all 13 rounds earn finish bonuses ({bonus_desc}). Faster responses = more turns = finish first.")
         lines.append("Keep reasoning brief.")
         lines.append("")
 
@@ -502,7 +503,12 @@ class ConcurrentYahtzeeEvent(Event):
                 )
                 sc["_upper_bonus"] = UPPER_BONUS_VALUE if sc["_upper_subtotal"] >= UPPER_BONUS_THRESHOLD else 0
                 sc["_yahtzee_bonuses"] = ps.yahtzee_bonuses
-                sc["_total"] = ps.calculate_total()
+                # Finish bonus for this player (0 if not yet finished or outside top N)
+                fb = 0
+                if ps.finish_order_idx is not None and ps.finish_order_idx < len(self._finish_bonus):
+                    fb = self._finish_bonus[ps.finish_order_idx]
+                sc["_finish_bonus"] = fb
+                sc["_total"] = ps.calculate_total() + fb
                 scorecards_out[pid] = sc
 
             return {

@@ -47,13 +47,6 @@ models:
     max_output_tokens: 512
     timeout_s: 45.0
 
-  ministral-8b:
-    provider: openrouter
-    model_id: mistralai/ministral-8b
-    api_key_env: OPENROUTER_API_KEY
-    temperature: 0.0
-    max_output_tokens: 512
-    timeout_s: 45.0
 
 events:
   rollerderby:

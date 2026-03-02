@@ -225,7 +225,10 @@ class TournamentEngine:
 
         Returns (response, success). On failure, returns a dummy response.
         Per-model max_output_tokens and timeout_s override global compute_caps.
+        Uses a hard timeout (2x the configured timeout_s) via ThreadPoolExecutor
+        to guard against hung HTTP connections.
         """
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
         model_cfg = self.config.models.get(model_name)
         if model_cfg:
             max_tokens = model_cfg.max_output_tokens
@@ -233,14 +236,29 @@ class TournamentEngine:
         else:
             max_tokens = self.config.compute_caps.max_output_tokens
             timeout_s = self.config.compute_caps.timeout_s
+        hard_timeout = timeout_s * 2
         try:
-            response = adapter.query(
-                messages=messages,
-                max_tokens=max_tokens,
-                timeout_s=timeout_s,
-                context={"seed": seed},
-            )
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    adapter.query,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    timeout_s=timeout_s,
+                    context={"seed": seed},
+                )
+                response = future.result(timeout=hard_timeout)
             return response, True
+        except FuturesTimeout:
+            print(f"[WARN] hard timeout ({hard_timeout:.0f}s) for {model_name}")
+            return AdapterResponse(
+                raw_text="",
+                reasoning_text=None,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=hard_timeout * 1000,
+                model_id=model_name,
+                model_version=model_name,
+            ), False
         except AdapterError as exc:
             print(f"[WARN] adapter error for {model_name}: {exc}")
             return AdapterResponse(
