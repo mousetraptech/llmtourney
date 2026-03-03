@@ -1,0 +1,106 @@
+# S2 Champions Bracket — Round 5: Hold'em Finale (all 8 players, proportional stacks)
+# Pentathlon format: R1 Holdem, R2 Storyteller, R3 Roller Derby, R4 Gauntlet, R5 Holdem Finale
+#
+# player_starting_stacks will be set proportional to cumulative R1-R4 scores.
+# Floor ensures no one starts too crippled.
+
+tournament:
+  name: "s2-champions-r5-holdem-finale"
+  seed: 2005
+  format: round_robin
+  version: "0.1.0"
+  tier: champions
+
+models:
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  claude-opus-4.6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4.6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  claude-sonnet-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  grok-3:
+    provider: openrouter
+    model_id: x-ai/grok-3
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+  haiku-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 60.0
+
+events:
+  holdem:
+    weight: 1
+    hands_per_match: 60
+    starting_stack: 50  # floor — used as fallback if model missing from player_starting_stacks
+    blinds: [4, 8]
+    blind_schedule:
+      15: [8, 16]
+      30: [16, 32]
+      45: [32, 64]
+    # player_starting_stacks: populated before R5 based on cumulative R1-R4 scores
+    # Example:
+    #   player_starting_stacks:
+    #     claude-sonnet-4.5: 400
+    #     grok-3: 275
+    #     gpt-4o: 200
+    #     ...
+
+shot_clock:
+  default_ms: 60000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 512
+  timeout_s: 60.0

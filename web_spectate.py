@@ -78,6 +78,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "rollerderby"
     if stem.startswith("yahtzee"):
         return "yahtzee"
+    if stem.startswith("storyteller"):
+        return "storyteller"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -92,6 +94,8 @@ def detect_event_type(jsonl_path: Path) -> str:
                 return "holdem"
             if '"reversi"' in first:
                 return "reversi"
+            if '"storyteller"' in first:
+                return "storyteller"
     except Exception:
         pass
     return "scrabble"
@@ -10309,6 +10313,674 @@ setInterval(function() {
 </html>"""
 
 
+# ── Storyteller HTML/CSS/JS ──────────────────────────────────────
+
+STORYTELLER_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyteller — Live Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --orange: #db6d28;
+  --gold: #f0c040;
+  --silver: #b0b8c0;
+  --bronze: #cd7f32;
+  --pa: #58a6ff; --pb: #d2a8ff; --pc: #3fb950; --pd: #f0883e;
+  --pe: #f85149; --pf: #d29922; --pg: #56d4dd; --ph: #ec6cb9;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; padding: 12px 16px;
+  background: var(--bg); color: var(--text);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px; line-height: 1.5;
+}
+.header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 8px 12px; margin-bottom: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+}
+.header h1 { margin: 0; font-size: 18px; color: var(--magenta); }
+.header .round-info { color: var(--cyan); font-size: 14px; }
+.header .phase-badge {
+  padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.phase-judge-write { background: var(--magenta); color: #000; }
+.phase-player-write { background: var(--cyan); color: #000; }
+.phase-judge-pick { background: var(--gold); color: #000; }
+
+/* Scoreboard */
+.scoreboard {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 12px; margin-bottom: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+}
+.score-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 4px;
+  background: rgba(255,255,255,0.04); font-size: 12px;
+}
+.score-chip .model-name { font-weight: 600; }
+.score-chip .pts { color: var(--gold); font-weight: 700; }
+.score-chip .medals { font-size: 10px; color: var(--dim); }
+.score-chip.is-judge { border: 1px solid var(--magenta); }
+
+/* Main grid */
+.main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+@media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px;
+}
+.panel h2 {
+  margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--dim);
+}
+
+/* Theme panel (god mode) */
+.theme-panel {
+  border-color: var(--magenta); position: relative;
+}
+.theme-panel::before {
+  content: 'GOD MODE'; position: absolute; top: -9px; right: 12px;
+  background: var(--magenta); color: #000; font-size: 9px; font-weight: 700;
+  padding: 1px 6px; border-radius: 3px; letter-spacing: 1px;
+}
+.theme-category { color: var(--magenta); font-size: 16px; font-weight: 700; }
+.theme-constraint { color: var(--dim); font-size: 13px; margin-top: 2px; }
+
+/* Judge prompt */
+.judge-prompt {
+  font-style: italic; color: var(--text); font-size: 14px;
+  line-height: 1.6; padding: 8px 12px; margin-top: 6px;
+  border-left: 3px solid var(--magenta); background: rgba(210,168,255,0.05);
+}
+
+/* Responses */
+.responses-grid {
+  display: grid; grid-template-columns: 1fr; gap: 8px;
+}
+.response-card {
+  padding: 8px 12px; border-radius: 6px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  position: relative;
+}
+.response-card.pending {
+  border-style: dashed; opacity: 0.5;
+}
+.response-card .resp-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+}
+.response-card .resp-label {
+  font-weight: 700; font-size: 12px; color: var(--cyan);
+}
+.response-card .resp-model {
+  font-size: 11px; color: var(--dim);
+}
+.response-card .resp-text {
+  font-size: 13px; line-height: 1.5; color: var(--text);
+}
+.response-card .medal {
+  position: absolute; top: 6px; right: 10px;
+  font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: 3px; letter-spacing: 0.5px;
+}
+.medal-gold { background: var(--gold); color: #000; }
+.medal-silver { background: var(--silver); color: #000; }
+.medal-bronze { background: var(--bronze); color: #000; }
+
+/* Round log */
+.round-entry {
+  padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.round-entry:last-child { border-bottom: none; }
+.round-entry .re-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 3px;
+}
+.round-entry .re-round { font-weight: 700; color: var(--cyan); }
+.round-entry .re-judge { color: var(--magenta); }
+.round-entry .re-theme { color: var(--dim); font-size: 11px; }
+.round-entry .re-picks { font-size: 11px; }
+.re-gold { color: var(--gold); font-weight: 600; }
+.re-silver { color: var(--silver); font-weight: 600; }
+.re-bronze { color: var(--bronze); font-weight: 600; }
+
+/* Reasoning */
+.reasoning-panel { grid-column: 1 / -1; }
+.reasoning-who { color: var(--cyan); font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+.reasoning-text {
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--dim); font-size: 12px; max-height: 120px; overflow-y: auto;
+}
+
+/* Final standings */
+.final-panel {
+  grid-column: 1 / -1; display: none;
+  border-color: var(--gold);
+}
+.final-panel.show { display: block; }
+.standing-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 8px; border-radius: 4px; margin-bottom: 4px;
+}
+.standing-row:nth-child(1) { background: rgba(240,192,64,0.1); border: 1px solid var(--gold); }
+.standing-row:nth-child(2) { background: rgba(176,184,192,0.08); border: 1px solid var(--silver); }
+.standing-row:nth-child(3) { background: rgba(205,127,50,0.08); border: 1px solid var(--bronze); }
+.standing-rank { font-size: 18px; font-weight: 700; min-width: 30px; text-align: center; }
+.standing-model { font-weight: 600; flex: 1; }
+.standing-score { font-size: 16px; font-weight: 700; color: var(--gold); }
+.standing-detail { font-size: 11px; color: var(--dim); }
+
+/* Footer */
+.footer {
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 12px; margin-top: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  font-size: 11px; color: var(--dim);
+}
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+  display: inline-block;
+}
+.status-dot.done { background: var(--dim); }
+
+/* Writer progress */
+.writer-progress {
+  display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap;
+}
+.writer-pip {
+  width: 12px; height: 12px; border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.writer-pip.done { background: var(--green); border-color: var(--green); }
+.writer-pip.active { background: var(--cyan); border-color: var(--cyan); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+</style>
+</head>
+<body>
+
+<div class="header" id="header">
+  <h1>STORYTELLER</h1>
+  <span class="round-info" id="roundInfo">Waiting...</span>
+  <span class="phase-badge" id="phaseBadge"></span>
+  <span style="margin-left:auto;color:var(--dim);font-size:11px" id="turnInfo"></span>
+</div>
+
+<div class="scoreboard" id="scoreboard"></div>
+
+<div class="main">
+  <div>
+    <div class="panel theme-panel" id="themePanel">
+      <h2>Theme</h2>
+      <div class="theme-category" id="themeCategory">---</div>
+      <div class="theme-constraint" id="themeConstraint"></div>
+    </div>
+
+    <div class="panel" id="judgePanel" style="margin-top:10px">
+      <h2>Judge's Piece</h2>
+      <div id="judgeName" style="font-size:12px;color:var(--magenta);margin-bottom:4px"></div>
+      <div class="judge-prompt" id="judgePrompt" style="display:none"></div>
+      <div id="judgeWaiting" style="color:var(--dim);font-style:italic">Waiting for judge...</div>
+    </div>
+
+    <div class="panel" id="writerPanel" style="margin-top:10px">
+      <h2>Writers <span id="writerCount" style="color:var(--dim)"></span></h2>
+      <div class="writer-progress" id="writerProgress"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" id="responsesPanel">
+      <h2>Responses</h2>
+      <div class="responses-grid" id="responsesGrid">
+        <div style="color:var(--dim);font-style:italic">No responses yet</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel reasoning-panel" id="reasoningPanel">
+    <h2>Reasoning</h2>
+    <div class="reasoning-who" id="reasoningWho"></div>
+    <div class="reasoning-text" id="reasoningText" style="color:var(--dim);font-style:italic">---</div>
+  </div>
+
+  <div class="panel" id="roundLogPanel" style="grid-column:1/-1">
+    <h2>Round History</h2>
+    <div id="roundLog"><span style="color:var(--dim)">No rounds completed yet</span></div>
+  </div>
+
+  <div class="panel final-panel" id="finalPanel">
+    <h2>Final Standings</h2>
+    <div id="finalStandings"></div>
+  </div>
+</div>
+
+<div class="footer">
+  <span class="status-dot" id="statusDot"></span>
+  <span id="statusText">Connecting...</span>
+  <span id="latencyInfo" style="margin-left:auto"></span>
+</div>
+
+<script>
+var PLAYER_COLORS = {
+  player_a:'var(--pa)',player_b:'var(--pb)',player_c:'var(--pc)',player_d:'var(--pd)',
+  player_e:'var(--pe)',player_f:'var(--pf)',player_g:'var(--pg)',player_h:'var(--ph)'
+};
+var RESPONSE_LABELS = ['Response A','Response B','Response C','Response D',
+                       'Response E','Response F','Response G'];
+
+var S = {
+  models: {},
+  round: 0,
+  numRounds: 8,
+  phase: '',
+  currentJudge: '',
+  themeCategory: '',
+  themeConstraint: '',
+  judgePrompt: '',
+  playerResponses: {},
+  responseOrder: [],
+  picks: {gold:'',silver:'',bronze:''},
+  matchScores: {},
+  playerStats: {},
+  roundLog: [],
+  judgeOrder: [],
+  turnNumber: 0,
+  turnCount: 0,
+  finished: false,
+  finalScores: {},
+  lastReasoning: '',
+  lastModel: '',
+  lastLatency: 0,
+  lastAction: '',
+  writersTotal: 0,
+  writersDone: 0
+};
+
+var rawLines = [];
+var turnQueue = [];
+var isReplaying = false;
+
+function processTurn(data) {
+  rawLines.push(data);
+  S.turnCount++;
+
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    if (data.player_models) S.models = data.player_models;
+    return;
+  }
+
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  // Init models
+  if (snap.player_models) S.models = snap.player_models;
+  if (pid && mid) S.models[pid] = mid;
+
+  // Core state
+  S.round = snap.round || S.round;
+  S.numRounds = snap.num_rounds || S.numRounds;
+  S.phase = snap.phase || S.phase;
+  S.currentJudge = snap.current_judge || S.currentJudge;
+  S.themeCategory = snap.theme_category || S.themeCategory;
+  S.themeConstraint = snap.theme_constraint || S.themeConstraint;
+  S.judgePrompt = snap.judge_prompt || S.judgePrompt;
+  S.matchScores = snap.match_scores || S.matchScores;
+  S.turnNumber = snap.turn_number || S.turnNumber;
+
+  // Player responses — merge incrementally
+  if (snap.player_responses) {
+    for (var k in snap.player_responses) {
+      S.playerResponses[k] = snap.player_responses[k];
+    }
+  }
+  S.responseOrder = snap.response_order || S.responseOrder;
+
+  // Picks
+  if (snap.picks) S.picks = snap.picks;
+
+  // Round log
+  if (snap.round_log) S.roundLog = snap.round_log;
+  if (snap.player_stats) S.playerStats = snap.player_stats;
+  if (snap.judge_order) S.judgeOrder = snap.judge_order;
+
+  // Action tracking
+  var act = data.parsed_action || {};
+  S.lastAction = act.action || '';
+  S.lastReasoning = data.reasoning_output || '';
+  S.lastModel = mid || S.models[pid] || '';
+  S.lastLatency = data.latency_ms || 0;
+
+  // Writer progress
+  if (S.phase === 'player_write') {
+    var total = Object.keys(S.models).length - 1;
+    var done = Object.keys(S.playerResponses).length;
+    S.writersTotal = total;
+    S.writersDone = done;
+  }
+
+  // Detect round transition: if phase went back to judge_write and we have responses from prev round
+  if (S.phase === 'judge_write' && S.lastAction === 'write_prompt') {
+    S.playerResponses = {};
+    S.responseOrder = [];
+    S.picks = {gold:'',silver:'',bronze:''};
+    S.writersDone = 0;
+  }
+}
+
+function modelShort(name) {
+  if (!name) return '?';
+  return name.replace('claude-','').replace('anthropic/','')
+    .replace('openai/','').replace('x-ai/','').replace('deepseek/','')
+    .replace('google/','').replace('meta-llama/','').replace('amazon/','');
+}
+
+function renderAll() {
+  renderHeader();
+  renderScoreboard();
+  renderTheme();
+  renderJudge();
+  renderWriterProgress();
+  renderResponses();
+  renderReasoning();
+  renderRoundLog();
+  renderFinal();
+  renderFooter();
+}
+
+function renderHeader() {
+  var el = document.getElementById('roundInfo');
+  el.textContent = 'Round ' + S.round + ' / ' + S.numRounds;
+
+  var badge = document.getElementById('phaseBadge');
+  if (S.phase === 'judge_write') {
+    badge.textContent = 'Judge Writing';
+    badge.className = 'phase-badge phase-judge-write';
+  } else if (S.phase === 'player_write') {
+    badge.textContent = 'Players Writing (' + S.writersDone + '/' + S.writersTotal + ')';
+    badge.className = 'phase-badge phase-player-write';
+  } else if (S.phase === 'judge_pick') {
+    badge.textContent = 'Judge Picking';
+    badge.className = 'phase-badge phase-judge-pick';
+  }
+
+  document.getElementById('turnInfo').textContent = 'Turn ' + S.turnCount;
+}
+
+function renderScoreboard() {
+  var el = document.getElementById('scoreboard');
+  // Sort by score descending
+  var pids = Object.keys(S.matchScores).sort(function(a,b) {
+    return (S.matchScores[b]||0) - (S.matchScores[a]||0);
+  });
+  if (pids.length === 0) { el.innerHTML = '<span style="color:var(--dim)">Waiting for players...</span>'; return; }
+  var html = '';
+  pids.forEach(function(pid) {
+    var m = modelShort(S.models[pid] || pid);
+    var score = S.matchScores[pid] || 0;
+    var stats = S.playerStats[pid] || {};
+    var g = stats.gold_count || 0;
+    var s = stats.silver_count || 0;
+    var b = stats.bronze_count || 0;
+    var isJudge = pid === S.currentJudge && !S.finished;
+    var cls = 'score-chip' + (isJudge ? ' is-judge' : '');
+    var color = PLAYER_COLORS[pid] || 'var(--text)';
+    html += '<div class="' + cls + '">'
+      + '<span class="model-name" style="color:' + color + '">' + m + '</span>'
+      + '<span class="pts">' + score + '</span>'
+      + '<span class="medals">' + g + 'G ' + s + 'S ' + b + 'B</span>'
+      + (isJudge ? '<span style="color:var(--magenta);font-size:10px">JUDGE</span>' : '')
+      + '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderTheme() {
+  var cat = document.getElementById('themeCategory');
+  var con = document.getElementById('themeConstraint');
+  if (S.themeCategory) {
+    cat.textContent = S.themeCategory;
+    con.textContent = S.themeConstraint;
+  }
+}
+
+function renderJudge() {
+  var nameEl = document.getElementById('judgeName');
+  var promptEl = document.getElementById('judgePrompt');
+  var waitEl = document.getElementById('judgeWaiting');
+
+  var judgeModel = modelShort(S.models[S.currentJudge] || '');
+  nameEl.textContent = judgeModel ? 'Judge: ' + judgeModel : '';
+
+  if (S.judgePrompt) {
+    promptEl.textContent = S.judgePrompt;
+    promptEl.style.display = 'block';
+    waitEl.style.display = 'none';
+  } else {
+    promptEl.style.display = 'none';
+    waitEl.style.display = 'block';
+  }
+}
+
+function renderWriterProgress() {
+  var el = document.getElementById('writerProgress');
+  var countEl = document.getElementById('writerCount');
+  if (S.phase !== 'player_write' && S.phase !== 'judge_pick') {
+    el.innerHTML = '';
+    countEl.textContent = '';
+    return;
+  }
+  countEl.textContent = '(' + S.writersDone + '/' + S.writersTotal + ')';
+  var pips = '';
+  var allPlayers = Object.keys(S.models).filter(function(p) { return p !== S.currentJudge; });
+  allPlayers.forEach(function(pid, i) {
+    var done = !!S.playerResponses[pid];
+    var cls = 'writer-pip' + (done ? ' done' : (i === S.writersDone ? ' active' : ''));
+    var color = PLAYER_COLORS[pid] || 'var(--border)';
+    var title = modelShort(S.models[pid]) + (done ? ' (done)' : '');
+    pips += '<div class="' + cls + '" title="' + title + '" style="border-color:' + (done ? color : '') + ';background:' + (done ? color : '') + '"></div>';
+  });
+  el.innerHTML = pips;
+}
+
+function renderResponses() {
+  var grid = document.getElementById('responsesGrid');
+  // During judge_pick or after, show shuffled response order with picks
+  if (S.responseOrder.length > 0 && (S.phase === 'judge_pick' || S.picks.gold)) {
+    var html = '';
+    S.responseOrder.forEach(function(pid, i) {
+      var label = RESPONSE_LABELS[i] || ('Response ' + String.fromCharCode(65+i));
+      var model = modelShort(S.models[pid] || pid);
+      var text = S.playerResponses[pid] || '(no response)';
+      var color = PLAYER_COLORS[pid] || 'var(--text)';
+      var medal = '';
+      if (S.picks.gold === pid) medal = '<span class="medal medal-gold">GOLD +5</span>';
+      else if (S.picks.silver === pid) medal = '<span class="medal medal-silver">SILVER +3</span>';
+      else if (S.picks.bronze === pid) medal = '<span class="medal medal-bronze">BRONZE +1</span>';
+      html += '<div class="response-card">'
+        + medal
+        + '<div class="resp-header">'
+        + '<span class="resp-label">' + label + '</span>'
+        + '<span class="resp-model" style="color:' + color + '">' + model + '</span>'
+        + '</div>'
+        + '<div class="resp-text">' + escHtml(text) + '</div>'
+        + '</div>';
+    });
+    grid.innerHTML = html;
+  } else if (Object.keys(S.playerResponses).length > 0) {
+    // During writing phase — show completed responses (god mode)
+    var html = '';
+    var respondents = Object.keys(S.playerResponses);
+    respondents.forEach(function(pid) {
+      var model = modelShort(S.models[pid] || pid);
+      var text = S.playerResponses[pid];
+      var color = PLAYER_COLORS[pid] || 'var(--text)';
+      html += '<div class="response-card">'
+        + '<div class="resp-header">'
+        + '<span class="resp-model" style="color:' + color + '">' + model + '</span>'
+        + '</div>'
+        + '<div class="resp-text">' + escHtml(text) + '</div>'
+        + '</div>';
+    });
+    // Pending writers
+    var allPlayers = Object.keys(S.models).filter(function(p) { return p !== S.currentJudge; });
+    allPlayers.forEach(function(pid) {
+      if (!S.playerResponses[pid]) {
+        var model = modelShort(S.models[pid] || pid);
+        var color = PLAYER_COLORS[pid] || 'var(--text)';
+        html += '<div class="response-card pending">'
+          + '<div class="resp-header">'
+          + '<span class="resp-model" style="color:' + color + '">' + model + '</span>'
+          + '</div>'
+          + '<div class="resp-text" style="color:var(--dim)">Writing...</div>'
+          + '</div>';
+      }
+    });
+    grid.innerHTML = html;
+  } else {
+    grid.innerHTML = '<div style="color:var(--dim);font-style:italic">No responses yet</div>';
+  }
+}
+
+function renderReasoning() {
+  var whoEl = document.getElementById('reasoningWho');
+  var textEl = document.getElementById('reasoningText');
+  if (S.lastReasoning) {
+    whoEl.textContent = S.lastModel + (S.lastLatency ? ' (' + (S.lastLatency/1000).toFixed(1) + 's)' : '');
+    textEl.textContent = S.lastReasoning;
+    textEl.style.fontStyle = 'normal';
+    textEl.style.color = 'var(--dim)';
+  }
+}
+
+function renderRoundLog() {
+  var el = document.getElementById('roundLog');
+  if (S.roundLog.length === 0) return;
+  var html = '';
+  S.roundLog.forEach(function(r) {
+    var judgeModel = modelShort(S.models[r.judge] || r.judge);
+    var goldModel = modelShort(S.models[r.picks.gold] || '?');
+    var silverModel = modelShort(S.models[r.picks.silver] || '?');
+    var bronzeModel = modelShort(S.models[r.picks.bronze] || '?');
+    html += '<div class="round-entry">'
+      + '<div class="re-header">'
+      + '<span class="re-round">R' + r.round + '</span>'
+      + '<span class="re-judge">Judge: ' + judgeModel + '</span>'
+      + '<span class="re-theme">' + r.theme_category + ' / ' + r.theme_constraint + '</span>'
+      + '</div>'
+      + '<div class="re-picks">'
+      + '<span class="re-gold">GOLD: ' + goldModel + '</span> · '
+      + '<span class="re-silver">SILVER: ' + silverModel + '</span> · '
+      + '<span class="re-bronze">BRONZE: ' + bronzeModel + '</span>'
+      + '</div>'
+      + '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderFinal() {
+  var panel = document.getElementById('finalPanel');
+  if (!S.finished) return;
+  panel.classList.add('show');
+  var scores = S.finalScores;
+  if (!scores || Object.keys(scores).length === 0) scores = S.matchScores;
+  var sorted = Object.keys(scores).sort(function(a,b) { return scores[b] - scores[a]; });
+  var html = '';
+  sorted.forEach(function(pid, i) {
+    var model = modelShort(S.models[pid] || pid);
+    var score = scores[pid];
+    var stats = S.playerStats[pid] || {};
+    var detail = (stats.gold_count||0) + 'G ' + (stats.silver_count||0) + 'S ' + (stats.bronze_count||0) + 'B';
+    var rankColors = ['var(--gold)','var(--silver)','var(--bronze)','var(--dim)','var(--dim)','var(--dim)','var(--dim)','var(--dim)'];
+    html += '<div class="standing-row">'
+      + '<span class="standing-rank" style="color:' + rankColors[i] + '">#' + (i+1) + '</span>'
+      + '<span class="standing-model" style="color:' + (PLAYER_COLORS[pid]||'var(--text)') + '">' + model + '</span>'
+      + '<span class="standing-score">' + score + '</span>'
+      + '<span class="standing-detail">' + detail + '</span>'
+      + '</div>';
+  });
+  document.getElementById('finalStandings').innerHTML = html;
+}
+
+function renderFooter() {
+  var dot = document.getElementById('statusDot');
+  var text = document.getElementById('statusText');
+  var lat = document.getElementById('latencyInfo');
+  if (S.finished) {
+    dot.className = 'status-dot done';
+    text.textContent = 'Match complete';
+  } else {
+    dot.className = 'status-dot';
+    text.textContent = 'LIVE';
+  }
+  if (S.lastLatency) {
+    lat.textContent = 'Last: ' + (S.lastLatency/1000).toFixed(1) + 's';
+  }
+}
+
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// SSE
+var es = new EventSource('/events');
+es.onmessage = function(e) {
+  var data = JSON.parse(e.data);
+  if (isReplaying) {
+    turnQueue.push(data);
+  } else if (rawLines.length === 0) {
+    turnQueue.push(data);
+    isReplaying = true;
+    drainQueue();
+  } else {
+    processTurn(data);
+    renderAll();
+  }
+};
+es.addEventListener('done', function() {
+  S.finished = true;
+  renderAll();
+});
+es.onerror = function() {
+  setTimeout(function() { location.reload(); }, 3000);
+};
+
+function drainQueue() {
+  if (turnQueue.length === 0) { isReplaying = false; renderAll(); return; }
+  var batch = turnQueue.splice(0, 5);
+  batch.forEach(function(d) { processTurn(d); });
+  renderAll();
+  if (turnQueue.length > 0) {
+    setTimeout(drainQueue, 150);
+  } else {
+    isReplaying = false;
+    renderAll();
+  }
+}
+</script>
+</body>
+</html>"""
+
+
 # ── Bracket HTML/CSS/JS ───────────────────────────────────────────
 
 BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
@@ -11320,7 +11992,8 @@ def main():
             "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE,
             "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
             "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE,
-            "yahtzee": YAHTZEE_HTML_PAGE, "multi": MULTI_EVENT_HTML_PAGE,
+            "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE,
+            "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
@@ -11331,8 +12004,8 @@ def main():
         server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
     else:
         # Single-match spectator mode
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
-        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee"}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE}
+        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller"}
 
         SpectatorHandler.event_filter = args.event
 

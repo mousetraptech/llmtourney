@@ -32,6 +32,7 @@ DISPLAY_NAMES = {
     "checkers": "Checkers",
     "reversi": "Reversi",
     "scrabble": "Scrabble",
+    "storyteller": "Storyteller",
 }
 
 

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Storyteller Action",
+  "oneOf": [
+    {
+      "title": "Write creative prompt (judge)",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "write_prompt" },
+        "prompt_text": { "type": "string", "maxLength": 1000 },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "prompt_text"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Write creative response (player)",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "write_response" },
+        "response_text": { "type": "string", "maxLength": 1500 },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "response_text"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Pick top 3 responses (judge)",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "judge_pick" },
+        "gold": { "type": "string" },
+        "silver": { "type": "string" },
+        "bronze": { "type": "string" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "gold", "silver", "bronze"],
+      "additionalProperties": false
+    }
+  ]
+}

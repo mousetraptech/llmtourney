@@ -34,6 +34,7 @@ class EventConfig:
     finish_bonus: list[int] | None = None
     race_timeout_s: float = 300.0
     round_cap: int | None = None
+    player_starting_stacks: dict[str, int] | None = None  # per-model stacks
 
 
 @dataclass
@@ -145,6 +146,7 @@ def load_config(path: Path) -> TournamentConfig:
             finish_bonus=e.get("finish_bonus"),
             race_timeout_s=e.get("race_timeout_s", 300.0),
             round_cap=e.get("round_cap"),
+            player_starting_stacks=e.get("player_starting_stacks"),
         )
 
     # Parse optional shot clock config

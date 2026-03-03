@@ -154,9 +154,11 @@ class HoldemEvent(Event):
         blind_schedule: list[tuple[int, int, int]] | None = None,
         num_players: int = 2,
         mode: str = "elimination",
+        player_starting_stacks: dict[str, int] | None = None,
     ) -> None:
         self._hands_per_match = hands_per_match
         self._starting_stack = starting_stack
+        self._player_starting_stacks = player_starting_stacks
         self._base_blinds = blinds
         self._blinds = blinds
         self._blind_schedule = blind_schedule  # [(hand, small, big), ...]
@@ -213,7 +215,13 @@ class HoldemEvent(Event):
     def reset(self, seed: int) -> None:
         """Initialize/reset the match state with the given seed."""
         self._rng = random.Random(seed)
-        self._stacks = {pid: self._starting_stack for pid in self._player_ids}
+        if self._player_starting_stacks:
+            self._stacks = {
+                pid: self._player_starting_stacks.get(pid, self._starting_stack)
+                for pid in self._player_ids
+            }
+        else:
+            self._stacks = {pid: self._starting_stack for pid in self._player_ids}
         self._hand_number = 0
         self._dealer = self._player_ids[0]  # first player is dealer for hand 1
         self._terminal = False

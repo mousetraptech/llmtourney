@@ -44,8 +44,9 @@ from llmtourney.events.liarsdice.engine import LiarsDiceEvent
 from llmtourney.events.yahtzee.engine import YahtzeeEvent
 from llmtourney.events.rollerderby.engine import ConcurrentYahtzeeEvent
 from llmtourney.events.gauntlet.engine import GauntletEvent
+from llmtourney.events.storyteller.engine import StorytellerEvent
 
-_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet"}
+_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller"}
 _CONCURRENT_EVENTS = {"rollerderby", "gauntlet"}
 
 _STRATEGY_REGISTRY = {
@@ -284,11 +285,22 @@ class TournamentEngine:
 
     def _build_event(
         self, event_name: str, event_cfg: EventConfig, num_players: int = 2,
+        models: list[str] | None = None,
     ) -> Event:
         """Instantiate an event engine from config."""
         if event_name == "checkers":
             return CheckersEvent(games_per_match=event_cfg.games_per_match)
         if event_name == "holdem":
+            # Convert model-keyed stacks to player_id-keyed stacks
+            player_stacks = None
+            if event_cfg.player_starting_stacks and models:
+                import string as _string
+                player_stacks = {}
+                for i, model in enumerate(models):
+                    pid = f"player_{_string.ascii_lowercase[i]}"
+                    if model in event_cfg.player_starting_stacks:
+                        player_stacks[pid] = event_cfg.player_starting_stacks[model]
+                    # else: falls back to starting_stack in engine
             return HoldemEvent(
                 hands_per_match=event_cfg.hands_per_match,
                 starting_stack=event_cfg.starting_stack,
@@ -296,6 +308,7 @@ class TournamentEngine:
                 blind_schedule=event_cfg.blind_schedule,
                 num_players=num_players,
                 mode=event_cfg.mode,
+                player_starting_stacks=player_stacks,
             )
         if event_name == "scrabble":
             return ScrabbleEvent()
@@ -334,6 +347,11 @@ class TournamentEngine:
             )
         if event_name == "yahtzee":
             return YahtzeeEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+            )
+        if event_name == "storyteller":
+            return StorytellerEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
             )
@@ -402,7 +420,7 @@ class TournamentEngine:
             event_name, 1, hash(deterministic_key) % 10000
         )
 
-        event = self._build_event(event_name, event_cfg, num_players=len(models))
+        event = self._build_event(event_name, event_cfg, num_players=len(models), models=models)
         event.reset(seed)
 
         player_ids = event.player_ids
@@ -956,7 +974,7 @@ class TournamentEngine:
             event_name, 1, hash(deterministic_key) % 10000
         )
 
-        event = self._build_event(event_name, event_cfg, num_players=len(models))
+        event = self._build_event(event_name, event_cfg, num_players=len(models), models=models)
         event.reset(seed)
 
         player_ids = event.player_ids
