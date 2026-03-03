@@ -20,10 +20,12 @@ TELEMETRY_DIR = Path("output/telemetry")
 PORT = 8800
 
 
-def discover_latest_match() -> Path | None:
+def discover_latest_match(event_filter: str | None = None) -> Path | None:
     if not TELEMETRY_DIR.exists():
         return None
     jsonl_files = list(TELEMETRY_DIR.glob("*.jsonl"))
+    if event_filter:
+        jsonl_files = [f for f in jsonl_files if f.stem.startswith(event_filter)]
     if not jsonl_files:
         return None
     return max(jsonl_files, key=lambda f: f.stat().st_mtime)
@@ -7733,13 +7735,13 @@ init();
 </html>"""
 
 
-# ── Roller Derby HTML/CSS/JS ────────────────────────────────────
+# ── Gauntlet HTML/CSS/JS ────────────────────────────────────────
 
 GAUNTLET_HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Roller Derby — LLM Tourney</title>
+<title>Gauntlet — LLM Tourney</title>
 <style>
 :root {
   --bg: #0a0a0f; --surface: #14141f; --border: #2a2a3a;
@@ -7809,7 +7811,7 @@ body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background:var(--b
 </head>
 <body>
 <div class="header">
-  <h1>ROLLER DERBY</h1>
+  <h1>GAUNTLET</h1>
   <div class="race-info" id="race-info">Loading...</div>
 </div>
 
@@ -10954,7 +10956,14 @@ class SpectatorHandler(BaseHTTPRequestHandler):
         self.send_header('X-Accel-Buffering', 'no')
         self.end_headers()
 
-        path = self.jsonl_path
+        event_filter = getattr(self.__class__, 'event_filter', None)
+
+        # Re-discover latest match for this event type on each connection
+        if event_filter:
+            latest = discover_latest_match(event_filter)
+            path = latest if latest else self.jsonl_path
+        else:
+            path = self.jsonl_path
         pos = 0
         done = False
 
@@ -11291,6 +11300,12 @@ def main():
         default=PORT,
         help=f"Port to serve on (default: {PORT})",
     )
+    parser.add_argument(
+        "--event",
+        type=str,
+        default=None,
+        help="Filter auto-discovery to this event type (e.g., holdem, bullshit)",
+    )
     args = parser.parse_args()
 
     if args.bracket:
@@ -11316,15 +11331,29 @@ def main():
         server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
     else:
         # Single-match spectator mode
-        jsonl_path = resolve_jsonl_path(args.match)
-        event_type = detect_event_type(jsonl_path)
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
+        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee"}
+
+        SpectatorHandler.event_filter = args.event
+
+        if args.event and not args.match:
+            # Event-filter mode: discover latest match for this event type
+            jsonl_path = discover_latest_match(args.event)
+            if jsonl_path is None:
+                # No match yet — create a placeholder path; SSE will wait for it
+                jsonl_path = TELEMETRY_DIR / f"{args.event}-pending.jsonl"
+            event_type = args.event
+        else:
+            jsonl_path = resolve_jsonl_path(args.match)
+            event_type = detect_event_type(jsonl_path)
 
         SpectatorHandler.jsonl_path = jsonl_path
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE}
         SpectatorHandler.html_page = page_map.get(event_type, HTML_PAGE)
 
-        label = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee"}.get(event_type, event_type)
+        label = label_map.get(event_type, event_type)
         print(f"{label} Web Spectator")
+        if args.event:
+            print(f"  Event filter: {args.event}")
         print(f"  File: {jsonl_path}")
         print(f"  URL:  http://127.0.0.1:{args.port}")
         print()

@@ -150,6 +150,8 @@ def compute_standings(
             lp = series_to_league_points(fix.scores, fix.player_models)
 
         for model_name in fix.player_models.values():
+            if model_name not in entries:
+                continue
             e = entries[model_name]
             e.played += 1
 
@@ -160,27 +162,32 @@ def compute_standings(
             sb = fix.scores.get(pids[1], 0.0)
             ma = fix.player_models[pids[0]]
             mb = fix.player_models[pids[1]]
-            if sa > sb:
-                entries[ma].wins += 1
-                entries[mb].losses += 1
-            elif sb > sa:
-                entries[mb].wins += 1
-                entries[ma].losses += 1
-            else:
-                entries[ma].draws += 1
-                entries[mb].draws += 1
+            if ma in entries and mb in entries:
+                if sa > sb:
+                    entries[ma].wins += 1
+                    entries[mb].losses += 1
+                elif sb > sa:
+                    entries[mb].wins += 1
+                    entries[ma].losses += 1
+                else:
+                    entries[ma].draws += 1
+                    entries[mb].draws += 1
 
-            entries[ma].points_for += sa
-            entries[ma].points_against += sb
-            entries[mb].points_for += sb
-            entries[mb].points_against += sa
+                entries[ma].points_for += sa
+                entries[ma].points_against += sb
+                entries[mb].points_for += sb
+                entries[mb].points_against += sa
         else:
             # Multiplayer: points_for = own score, points_against = avg others
             for pid, model_name in fix.player_models.items():
+                if model_name not in entries:
+                    continue
                 own_score = fix.scores.get(pid, 0.0)
                 entries[model_name].points_for += own_score
 
         for model_name, pts in lp.items():
+            if model_name not in entries:
+                continue
             entries[model_name].league_points += pts
 
     # Sort: league_points desc → differential desc → wins desc
@@ -454,6 +461,9 @@ class LeagueRunner:
                 for e in standings
             ]
 
+        # Combined leaderboard: normalize each event to 0-100, weight by event weight
+        leaderboard = self._compute_leaderboard(event_standings)
+
         total = len(self.fixtures)
         complete = sum(1 for f in self.fixtures if f.status == "complete")
 
@@ -467,12 +477,43 @@ class LeagueRunner:
             "status": "complete" if complete == total else "in_progress",
             "fixtures": fixtures_data,
             "standings": event_standings,
+            "leaderboard": leaderboard,
         }
+
+    # ── Leaderboard ────────────────────────────────────────────
+
+    def _compute_leaderboard(
+        self, event_standings: dict[str, list[dict]],
+    ) -> list[dict]:
+        """Aggregate across events: normalize each to 0-100, weight by config weight."""
+        totals: dict[str, float] = {m: 0.0 for m in self.model_names}
+        total_weight = 0
+
+        for event_name, rows in event_standings.items():
+            if not rows:
+                continue
+            weight = self.config.events[event_name].weight
+            max_pts = max(r["league_points"] for r in rows)
+            if max_pts <= 0:
+                continue
+            total_weight += weight
+            for r in rows:
+                if r["model"] in totals:
+                    totals[r["model"]] += (r["league_points"] / max_pts) * 100 * weight
+
+        # Normalize by total weight so score is out of 100
+        if total_weight > 0:
+            for m in totals:
+                totals[m] /= total_weight
+
+        ranked = sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        return [{"model": m, "score": round(s, 1)} for m, s in ranked]
 
     # ── Display ──────────────────────────────────────────────────
 
     def print_standings(self) -> None:
         """Print formatted league tables to stdout."""
+        event_standings_raw = {}
         for event_name in self.config.events:
             is_mp = (
                 event_name in _MULTIPLAYER_EVENTS
@@ -482,6 +523,19 @@ class LeagueRunner:
                 self.fixtures, self.model_names, event=event_name,
                 is_multiplayer=is_mp,
             )
+            event_standings_raw[event_name] = [
+                {
+                    "model": e.model,
+                    "league_points": e.league_points,
+                    "played": e.played,
+                    "wins": e.wins,
+                    "draws": e.draws,
+                    "losses": e.losses,
+                    "points_for": e.points_for,
+                    "points_against": e.points_against,
+                }
+                for e in standings
+            ]
 
             print(f"\n{'='*60}")
             print(f"  {event_name.upper()} STANDINGS")
@@ -501,4 +555,17 @@ class LeagueRunner:
                         f"{e.draws:>3d} {e.losses:>3d} {e.points_for:>6.1f} "
                         f"{e.points_against:>6.1f} {e.league_points:>6.1f}"
                     )
+
+        # Combined leaderboard
+        leaderboard = self._compute_leaderboard(event_standings_raw)
+        completed = sum(1 for f in self.fixtures if f.status == "complete")
+        total = len(self.fixtures)
+
+        print(f"\n{'='*60}")
+        print(f"  LEADERBOARD ({completed}/{total} fixtures)")
+        print(f"{'='*60}")
+        print(f"  {'#':>2s}  {'Model':<25s} {'Score':>6s}")
+        print(f"  {'--':>2s}  {'-'*25} {'-'*6}")
+        for i, entry in enumerate(leaderboard):
+            print(f"  {i+1:>2d}  {entry['model']:<25s} {entry['score']:>6.1f}")
         print()

@@ -50,8 +50,17 @@ class BullshitEvent(MultiplayerSeriesEvent):
         Number of players (3-10, default 4).
     """
 
-    def __init__(self, games_per_match: int = 1, num_players: int = 4) -> None:
+    def __init__(
+        self,
+        games_per_match: int = 1,
+        num_players: int = 4,
+        mode: str = "elimination",
+        round_cap: int | None = None,
+    ) -> None:
         super().__init__(games_per_match, num_players)
+        # "elimination" (default, also accepts "attrition") or "fixed_rounds"
+        self._mode = "elimination" if mode in ("elimination", "attrition") else mode
+        self._round_cap = round_cap
 
         # Per-game state
         self._hands: dict[str, list[str]] = {}
@@ -70,6 +79,8 @@ class BullshitEvent(MultiplayerSeriesEvent):
 
         # Tracking
         self._turn_number: int = 0
+        self._round_number: int = 0
+        self._plays_this_round: int = 0
         self._history: list[dict] = []
         self._finish_order: list[str] = []
         self._eliminated: set[str] = set()
@@ -80,6 +91,7 @@ class BullshitEvent(MultiplayerSeriesEvent):
                 "lie_count": 0,
                 "truth_count": 0,
                 "unnecessary_bluff_count": 0,
+                "successful_bluffs": 0,
                 "times_caught": 0,
                 "times_called_bs": 0,
                 "correct_calls": 0,
@@ -111,6 +123,11 @@ class BullshitEvent(MultiplayerSeriesEvent):
                 pl = self._player_labels[pid]
                 score_parts.append(f"{pl}: {self._match_scores[pid]:.0f}")
             lines.append(f"Match scores: {', '.join(score_parts)}")
+            lines.append("")
+
+        if self._mode == "fixed_rounds" and self._round_cap:
+            lines.append(f"Mode: fixed rounds — game ends after {self._round_cap} rounds, scored by fewest cards remaining.")
+            lines.append(f"Round {self._round_number + 1} of {self._round_cap}.")
             lines.append("")
 
         # Card counts
@@ -284,6 +301,9 @@ class BullshitEvent(MultiplayerSeriesEvent):
             "terminal": self._terminal,
             "match_scores": dict(self._match_scores),
             "player_stats": {p: dict(self._player_stats[p]) for p in self._player_ids},
+            "mode": self._mode,
+            "round_number": self._round_number,
+            "round_cap": self._round_cap,
         }
 
     # ------------------------------------------------------------------
@@ -309,6 +329,8 @@ class BullshitEvent(MultiplayerSeriesEvent):
         self._turn_player_idx = 0  # player_a starts
         self._phase = Phase.PLAY
         self._turn_number = 0
+        self._round_number = 0
+        self._plays_this_round = 0
         self._history = []
         self._finish_order = []
         self._eliminated = set()
@@ -323,6 +345,7 @@ class BullshitEvent(MultiplayerSeriesEvent):
                 "lie_count": 0,
                 "truth_count": 0,
                 "unnecessary_bluff_count": 0,
+                "successful_bluffs": 0,
                 "times_caught": 0,
                 "times_called_bs": 0,
                 "correct_calls": 0,
@@ -332,7 +355,16 @@ class BullshitEvent(MultiplayerSeriesEvent):
         """Score the game and start the next one."""
         # Players not yet in finish_order still have cards — rank by fewest cards
         remaining = [p for p in self._player_ids if p not in self._finish_order]
-        remaining.sort(key=lambda p: len(self._hands[p]))
+        if self._mode == "fixed_rounds" and not self._finish_order:
+            # No one emptied hand — rank by fewest cards, tiebreak by successful_bluffs
+            remaining.sort(
+                key=lambda p: (
+                    len(self._hands[p]),
+                    -self._player_stats[p]["successful_bluffs"],
+                ),
+            )
+        else:
+            remaining.sort(key=lambda p: len(self._hands[p]))
         final_order = list(self._finish_order) + remaining
 
         # N-1 points for 1st, N-2 for 2nd, ..., 0 for last
@@ -353,6 +385,16 @@ class BullshitEvent(MultiplayerSeriesEvent):
                 break
         self._phase = Phase.PLAY
         self._turn_number += 1
+
+        # Round counting for fixed_rounds mode
+        if self._mode == "fixed_rounds" and self._round_cap:
+            self._plays_this_round += 1
+            active_count = sum(1 for p in self._player_ids if p not in self._eliminated)
+            if active_count > 0 and self._plays_this_round >= active_count:
+                self._plays_this_round = 0
+                self._round_number += 1
+                if self._round_number >= self._round_cap:
+                    self._finish_game()
 
     # ------------------------------------------------------------------
     # Play phase
@@ -488,6 +530,9 @@ class BullshitEvent(MultiplayerSeriesEvent):
 
     def _resolve_no_challenge(self) -> None:
         """No one challenged — play stands."""
+        # Track successful bluff (got away with a lie)
+        if self._history and not self._history[-1].get("was_truthful", True):
+            self._player_stats[self._last_play_player]["successful_bluffs"] += 1
         player = self._last_play_player
         self._check_empty_hand(player)
         self._advance_turn()

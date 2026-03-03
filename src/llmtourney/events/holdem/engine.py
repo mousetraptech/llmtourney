@@ -153,6 +153,7 @@ class HoldemEvent(Event):
         blinds: tuple[int, int] = (1, 2),
         blind_schedule: list[tuple[int, int, int]] | None = None,
         num_players: int = 2,
+        mode: str = "elimination",
     ) -> None:
         self._hands_per_match = hands_per_match
         self._starting_stack = starting_stack
@@ -160,6 +161,8 @@ class HoldemEvent(Event):
         self._blinds = blinds
         self._blind_schedule = blind_schedule  # [(hand, small, big), ...]
         self._num_players = num_players
+        # "elimination" (default, also accepts "attrition") or "fixed_hands"
+        self._mode = "elimination" if mode in ("elimination", "attrition") else mode
 
         # Dynamic player IDs and labels
         self._player_ids = [f"player_{string.ascii_lowercase[i]}" for i in range(num_players)]
@@ -266,8 +269,10 @@ class HoldemEvent(Event):
             f"- Hand {self._hand_number} of {self._hands_per_match}",
             f"- Pot: {self._pot} chips",
             f"- Blinds: {self._blinds[0]}/{self._blinds[1]}",
-            "- Stacks:",
         ]
+        if self._mode == "fixed_hands":
+            lines.append("- Mode: fixed hands — match ends after all hands are played, scored by final chip count")
+        lines.append("- Stacks:")
         lines.extend(stack_lines)
         lines.extend([
             "",
@@ -395,6 +400,7 @@ class HoldemEvent(Event):
             "terminal": self._terminal,
             "blinds": list(self._blinds),
             "num_players": self._num_players,
+            "mode": self._mode,
             "folded": sorted(self._folded),
             "all_in": sorted(self._all_in),
             "busted": sorted(self._busted),
@@ -481,11 +487,17 @@ class HoldemEvent(Event):
                 self._busted.add(pid)
                 self._dead_seats.discard(pid)
 
-        # Check for terminal: 1 or fewer active players
+        # Check for terminal
         active = self._active_players()
-        if len(active) <= 1:
-            self._terminal = True
-            return
+        if self._mode == "fixed_hands":
+            # Only terminate when zero players remain (all broke)
+            if len(active) == 0:
+                self._terminal = True
+                return
+        else:
+            if len(active) <= 1:
+                self._terminal = True
+                return
 
         # Rotate dealer (after hand 1), skipping busted and dead players
         if self._hand_number > 1:

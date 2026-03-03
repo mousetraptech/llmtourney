@@ -295,6 +295,7 @@ class TournamentEngine:
                 blinds=event_cfg.blinds,
                 blind_schedule=event_cfg.blind_schedule,
                 num_players=num_players,
+                mode=event_cfg.mode,
             )
         if event_name == "scrabble":
             return ScrabbleEvent()
@@ -308,6 +309,8 @@ class TournamentEngine:
             return BullshitEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
+                mode=event_cfg.mode,
+                round_cap=event_cfg.round_cap,
             )
         if event_name == "liarsdice":
             return LiarsDiceEvent(

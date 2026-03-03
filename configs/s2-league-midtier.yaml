@@ -70,19 +70,17 @@ models:
 events:
   holdem:
     weight: 1
-    hands_per_match: 75
+    hands_per_match: 20
     starting_stack: 300
     blinds: [1, 2]
-    blind_schedule:
-      20: [2, 4]
-      35: [4, 8]
-      50: [8, 16]
-      65: [16, 32]
+    mode: fixed_hands
     rounds: 1
 
   bullshit:
     weight: 1
     games_per_match: 1
+    round_cap: 4
+    mode: fixed_rounds
     rounds: 1
 
   liarsdice:
