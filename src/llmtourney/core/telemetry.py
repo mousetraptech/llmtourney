@@ -1,10 +1,11 @@
-"""TelemetryLogger — JSONL match logging.
+"""TelemetryLogger — JSONL match logging + resume loader.
 
 One logger per match. Writes one JSONL line per turn plus a match summary
 as the final line. All entries include schema version and match ID.
 """
 
 import json
+from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,3 +108,51 @@ class TelemetryLogger:
     def _append(self, record: dict) -> None:
         with open(self._file_path, "a") as f:
             f.write(json.dumps(record, default=str) + "\n")
+
+
+def load_resume_state(telemetry_file: Path) -> dict:
+    """Parse a telemetry JSONL file and build a resume_state dict.
+
+    Returns
+    -------
+    dict with keys:
+        snapshot : dict – last state_snapshot from the file
+        turn_number : int – last turn number
+        match_id : str – match ID from the file
+        strikes : dict[str, int] – per-player max cumulative_strikes
+    """
+    telemetry_file = Path(telemetry_file)
+    if not telemetry_file.exists():
+        raise FileNotFoundError(f"Telemetry file not found: {telemetry_file}")
+
+    last_turn_entry = None
+    strikes: dict[str, int] = defaultdict(int)
+
+    with open(telemetry_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            # Skip summary records
+            if entry.get("record_type") == "match_summary":
+                continue
+            # Track max cumulative strikes per player
+            pid = entry.get("player_id")
+            if pid:
+                strikes[pid] = max(strikes[pid], entry.get("cumulative_strikes", 0))
+            last_turn_entry = entry
+
+    if last_turn_entry is None:
+        raise ValueError(f"No turn entries found in {telemetry_file}")
+
+    snapshot = last_turn_entry.get("state_snapshot")
+    if not snapshot:
+        raise ValueError(f"Last entry has no state_snapshot in {telemetry_file}")
+
+    return {
+        "snapshot": snapshot,
+        "turn_number": last_turn_entry["turn_number"],
+        "match_id": last_turn_entry["match_id"],
+        "strikes": dict(strikes),
+    }

@@ -86,13 +86,15 @@ events:
       15: [8, 16]
       30: [16, 32]
       45: [32, 64]
-    # player_starting_stacks: populated before R5 based on cumulative R1-R4 scores
-    # Example:
-    #   player_starting_stacks:
-    #     claude-sonnet-4.5: 400
-    #     grok-3: 275
-    #     gpt-4o: 200
-    #     ...
+    player_starting_stacks:
+      claude-sonnet-4.5: 1000
+      grok-3: 809
+      gpt-4o: 725
+      claude-opus-4.6: 466
+      haiku-4.5: 437
+      gpt-4o-mini: 382
+      deepseek-chat: 338
+      grok-3-mini: 277
 
 shot_clock:
   default_ms: 60000

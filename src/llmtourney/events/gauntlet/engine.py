@@ -217,6 +217,11 @@ class GauntletEvent(Event):
                 or player_id in self._eliminated
             )
 
+    @property
+    def game_number(self) -> int:
+        with self._lock:
+            return self._race_number
+
     def race_over(self) -> bool:
         """Check if the current race is complete."""
         with self._lock:

@@ -8,10 +8,17 @@ from llmtourney.config import load_config
 from llmtourney.tournament import TournamentEngine
 
 
-def _run_round_robin(config) -> None:
+def _run_round_robin(config, resume_file: Path | None = None) -> None:
     """Run a round-robin tournament."""
+    resume_state = None
+    if resume_file:
+        from llmtourney.core.telemetry import load_resume_state
+        resume_state = load_resume_state(resume_file)
+        print(f"Resuming match {resume_state['match_id']} from turn {resume_state['turn_number']}")
+        print()
+
     engine = TournamentEngine(config)
-    result = engine.run()
+    result = engine.run(resume_state=resume_state)
 
     print("=" * 60)
     print("RESULTS")
@@ -94,6 +101,12 @@ def main() -> None:
         default=False,
         help="Pause for confirmation before starting the final match",
     )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Resume a crashed match from a telemetry JSONL file",
+    )
     args = parser.parse_args()
 
     if not args.config.exists():
@@ -114,7 +127,7 @@ def main() -> None:
     elif config.format == "league":
         _run_league(config)
     else:
-        _run_round_robin(config)
+        _run_round_robin(config, resume_file=args.resume)
 
 
 if __name__ == "__main__":

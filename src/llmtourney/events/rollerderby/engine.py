@@ -147,6 +147,42 @@ class ConcurrentYahtzeeEvent(Event):
         self._eliminated = set()
         self._start_new_game()
 
+    def load_state(self, snapshot: dict, seed: int) -> None:
+        """Restore full concurrent Yahtzee state from a telemetry snapshot.
+
+        Must be called after reset(). Reconstructs per-player _PlayerState
+        from the snapshot's players/scorecards data.
+        """
+        self._base_seed = seed
+        self._game_number = snapshot["game_number"]
+        self._match_scores = {p: float(v) for p, v in snapshot["match_scores"].items()}
+        self._terminal = snapshot.get("terminal", False)
+        self._turn_number = snapshot.get("turn_number", 0)
+        self._finish_order = list(snapshot.get("finish_order", []))
+        self._eliminated = set(snapshot.get("eliminated", []))
+        self._player_labels = dict(snapshot.get("player_labels", self._player_labels))
+
+        players = snapshot.get("players", {})
+        scorecards = snapshot.get("scorecards", {})
+
+        for pid in self._player_ids:
+            ps = self._states[pid]
+            pdata = players.get(pid, {})
+
+            ps.round_number = pdata.get("round", ps.round_number)
+            ps.roll_number = pdata.get("roll_number", ps.roll_number)
+            ps.dice = list(pdata.get("dice", ps.dice))
+            ps.finished = pdata.get("finished", ps.finished)
+            ps.finish_order_idx = pdata.get("finish_order_idx")
+            ps.turns_taken = pdata.get("turns_taken", ps.turns_taken)
+
+            # Restore scorecard, stripping computed keys
+            sc = scorecards.get(pid, {})
+            ps.yahtzee_bonuses = sc.get("_yahtzee_bonuses", 0)
+            for cat in ALL_CATEGORIES:
+                val = sc.get(cat)
+                ps.scorecard[cat] = val  # None or int
+
     def _start_new_game(self) -> None:
         self._game_number += 1
         if self._game_number > self._games_per_match:
@@ -204,6 +240,11 @@ class ConcurrentYahtzeeEvent(Event):
     def player_finished(self, player_id: str) -> bool:
         with self._lock:
             return self._states[player_id].finished
+
+    @property
+    def game_number(self) -> int:
+        with self._lock:
+            return self._game_number
 
     def race_over(self) -> bool:
         with self._lock:

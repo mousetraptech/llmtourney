@@ -92,11 +92,19 @@ class TournamentEngine:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self) -> TournamentResult:
-        """Execute the full tournament and return results."""
+    def run(self, resume_state: dict | None = None) -> TournamentResult:
+        """Execute the full tournament and return results.
+
+        Parameters
+        ----------
+        resume_state : dict, optional
+            If provided, resumes from a prior telemetry snapshot.
+            Only applies to the first match (concurrent or multiplayer).
+        """
         try:
             matches: list[MatchResult] = []
             model_names = list(self.config.models.keys())
+            _resume_used = False
 
             for event_name, event_cfg in self.config.events.items():
                 multiplayer = (
@@ -108,9 +116,16 @@ class TournamentEngine:
                     and event_cfg.mode == "concurrent"
                 )
                 for _round in range(1, event_cfg.rounds + 1):
+                    # Use resume_state for the first match only
+                    rs = None
+                    if resume_state and not _resume_used:
+                        rs = resume_state
+                        _resume_used = True
+
                     if concurrent and multiplayer:
                         result = self._run_concurrent_match(
                             event_name, event_cfg, model_names,
+                            resume_state=rs,
                         )
                         matches.append(result)
                     elif multiplayer:
@@ -977,6 +992,7 @@ class TournamentEngine:
         event_name: str,
         event_cfg: EventConfig,
         models: list[str],
+        resume_state: dict | None = None,
     ) -> MatchResult:
         """Execute a concurrent race with all players running in parallel.
 
@@ -984,8 +1000,11 @@ class TournamentEngine:
         responses processed as they arrive. Response latency is a game
         mechanic — faster models get more turns per wall-clock second.
         """
-        short_id = uuid.uuid4().hex[:6]
-        match_id = f"{event_name}-{'-vs-'.join(models)}-{short_id}"
+        if resume_state:
+            match_id = resume_state["match_id"]
+        else:
+            short_id = uuid.uuid4().hex[:6]
+            match_id = f"{event_name}-{'-vs-'.join(models)}-{short_id}"
         deterministic_key = f"{event_name}-{'-vs-'.join(models)}"
         seed = self.seed_mgr.get_match_seed(
             event_name, 1, hash(deterministic_key) % 10000
@@ -993,6 +1012,12 @@ class TournamentEngine:
 
         event = self._build_event(event_name, event_cfg, num_players=len(models), models=models)
         event.reset(seed)
+
+        # Resume: restore event state from snapshot
+        if resume_state:
+            new_seed = hash((seed, resume_state["turn_number"])) & 0xFFFFFFFF
+            event.load_state(resume_state["snapshot"], new_seed)
+            print(f"[RESUME] Resuming from turn {resume_state['turn_number']}")
 
         player_ids = event.player_ids
         player_models = dict(zip(player_ids, models))
@@ -1014,9 +1039,12 @@ class TournamentEngine:
 
         # Per-player violation tracking (thread-safe via event._lock)
         import threading
-        _turn_counter = [0]
+        _turn_counter = [resume_state["turn_number"] if resume_state else 0]
         _counter_lock = threading.Lock()
-        _player_strikes: dict[str, int] = {pid: 0 for pid in player_ids}
+        _resume_strikes = resume_state["strikes"] if resume_state else {}
+        _player_strikes: dict[str, int] = {
+            pid: _resume_strikes.get(pid, 0) for pid in player_ids
+        }
         _player_violation_streak: dict[str, int] = {pid: 0 for pid in player_ids}
         _last_violation_key: dict[str, str] = {}
         match_forfeit_threshold = 3
@@ -1037,14 +1065,23 @@ class TournamentEngine:
             race_start = time.monotonic()
 
             while not event.is_terminal():
-                # Check if this player is done
+                # Check if this player is done for the current game
                 if event.player_finished(player_id):
-                    break
+                    # Wait for next game or match end — poll briefly
+                    cur_game = event.game_number
+                    while event.player_finished(player_id) and not event.is_terminal():
+                        time.sleep(0.1)
+                        # New game started — reset race clock
+                        if event.game_number != cur_game:
+                            race_start = time.monotonic()
+                            break
+                    continue
 
                 # Check race timeout
                 elapsed = time.monotonic() - race_start
                 if elapsed > race_timeout_s:
-                    print(f"[TIMEOUT] Race timeout for {model_name} after {elapsed:.0f}s")
+                    print(f"[TIMEOUT] Race timeout for {model_name} after {elapsed:.0f}s — eliminating")
+                    event.eliminate_player(player_id)
                     break
 
                 # Check if player is eliminated via strikes
