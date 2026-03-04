@@ -1,12 +1,12 @@
-# S2 Champions Bracket — Round 5: Hold'em Finale (all 8 players, proportional stacks)
-# Pentathlon format: R1 Holdem, R2 Storyteller, R3 Roller Derby, R4 Gauntlet, R5 Holdem Finale
+# S2 Champions Bracket — Round 6: Hold'em Finale (all 8 players, proportional stacks)
+# Pentathlon: R1 Holdem, R2 Storyteller, R3 Roller Derby, R4 Gauntlet, R5 Liar's Dice, R6 Holdem Finale
 #
-# player_starting_stacks will be set proportional to cumulative R1-R4 scores.
+# player_starting_stacks will be set proportional to cumulative R1-R5 scores (0-500 range).
 # Floor ensures no one starts too crippled.
 
 tournament:
-  name: "s2-champions-r5-holdem-finale"
-  seed: 2005
+  name: "s2-champions-r6-holdem-finale"
+  seed: 2006
   format: round_robin
   version: "0.1.0"
   tier: champions

@@ -28,6 +28,7 @@ from llmtourney.core.seed import SeedManager
 from llmtourney.core.telemetry import TelemetryEntry, TelemetryLogger
 from llmtourney.events.base import Event
 from llmtourney.events.holdem.engine import HoldemEvent
+from llmtourney.scoring.hybrid import hybrid_holdem_scores, hybrid_normalize
 from llmtourney.events.holdem.strategies import (
     always_call_strategy,
     garbage_strategy,
@@ -892,6 +893,20 @@ class TournamentEngine:
 
         # Finalize — always runs, even after crash
         scores = event.get_scores()
+
+        # Normalize scores to 0-100
+        if (
+            isinstance(event, HoldemEvent)
+            and getattr(event, '_mode', None) != 'fixed_hands'
+            and hasattr(event, 'get_elimination_order')
+        ):
+            # Holdem elimination: placement from bust order + chip proportion
+            elim_order = event.get_elimination_order()
+            scores = hybrid_holdem_scores(elim_order, scores, n_players=len(models))
+        else:
+            # All other events: placement from score ranking + score proportion
+            scores = hybrid_normalize(scores)
+
         fidelity = referee.get_fidelity_report()
 
         # Ensure fidelity report has entries for all players even if clean
@@ -918,6 +933,8 @@ class TournamentEngine:
         }
         if _match_error:
             match_extra["crash_error"] = str(_match_error)
+        if isinstance(event, HoldemEvent) and hasattr(event, 'get_elimination_order'):
+            match_extra["elimination_order"] = event.get_elimination_order()
         forfeit_player = referee.get_match_forfeit_player()
         if forfeit_player:
             match_extra["forfeit_details"] = {
@@ -1179,6 +1196,7 @@ class TournamentEngine:
                     event.eliminate_player(pid)
 
         scores = event.get_scores()
+        scores = hybrid_normalize(scores)
         logger.finalize_match(
             scores=scores,
             fidelity={},

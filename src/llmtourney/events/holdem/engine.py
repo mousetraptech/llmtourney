@@ -227,6 +227,7 @@ class HoldemEvent(Event):
         self._terminal = False
         self._busted = set()
         self._dead_seats = set()
+        self._elimination_order: list[tuple[str, int]] = []
         self._hand_history = []
         self._pot_totals = []
         self._highlight_hands = []
@@ -385,6 +386,10 @@ class HoldemEvent(Event):
         """Return final chip counts as scores."""
         return {pid: float(self._stacks[pid]) for pid in self._player_ids}
 
+    def get_elimination_order(self) -> list[tuple[str, int]]:
+        """Return elimination order as list of (player_id, hand_number)."""
+        return list(self._elimination_order)
+
     def get_state_snapshot(self) -> dict:
         """Return a serializable snapshot of current game state.
 
@@ -413,6 +418,7 @@ class HoldemEvent(Event):
             "all_in": sorted(self._all_in),
             "busted": sorted(self._busted),
             "dead_seats": sorted(self._dead_seats),
+            "elimination_order": list(self._elimination_order),
         }
 
     def award_forfeit_wins(self, forfeiting_player_id: str) -> None:
@@ -488,11 +494,14 @@ class HoldemEvent(Event):
         for pid in self._player_ids:
             if self._stacks[pid] <= 0 and pid not in self._busted:
                 self._busted.add(pid)
+                self._elimination_order.append((pid, self._hand_number))
 
         # Transition broke dead seats to busted
         for pid in list(self._dead_seats):
             if self._stacks[pid] <= 0:
                 self._busted.add(pid)
+                if not any(p == pid for p, _ in self._elimination_order):
+                    self._elimination_order.append((pid, self._hand_number))
                 self._dead_seats.discard(pid)
 
         # Check for terminal

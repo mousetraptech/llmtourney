@@ -50,7 +50,7 @@ class TestTournamentHoldem:
                 assert "final_scores" in summary
                 scores = summary["final_scores"]
                 total = sum(scores.values())
-                assert total == 400  # chip conservation
+                assert total == pytest.approx(100, abs=0.1)  # hybrid scores sum to ~100
 
     def test_no_violations_from_clean_mocks(self, tmp_path):
         config = load_config(EXAMPLE_CONFIG)

@@ -50,7 +50,7 @@ class TestAdversarialMock:
             assert total_injections > 0
 
     def test_match_still_produces_valid_scores(self, tmp_path):
-        """Even with violations, scores should sum to total chips."""
+        """Even with violations, hybrid scores should sum to ~100."""
         config = _make_config(
             tmp_path,
             strategy_a="always_call",
@@ -60,7 +60,7 @@ class TestAdversarialMock:
         result = engine.run()
         for match in result.matches:
             total = sum(match.scores.values())
-            assert total == 400
+            assert total == pytest.approx(100, abs=0.1)
 
 
 def _make_config(tmp_path, strategy_a, strategy_b):
