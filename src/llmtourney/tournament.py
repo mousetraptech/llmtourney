@@ -46,8 +46,10 @@ from llmtourney.events.yahtzee.engine import YahtzeeEvent
 from llmtourney.events.rollerderby.engine import ConcurrentYahtzeeEvent
 from llmtourney.events.gauntlet.engine import GauntletEvent
 from llmtourney.events.storyteller.engine import StorytellerEvent
+from llmtourney.events.spades.engine import SpadesEvent
+from llmtourney.events.hearts.engine import HeartsEvent
 
-_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller"}
+_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller", "spades", "hearts"}
 _CONCURRENT_EVENTS = {"rollerderby", "gauntlet"}
 
 _STRATEGY_REGISTRY = {
@@ -370,6 +372,18 @@ class TournamentEngine:
             return StorytellerEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
+            )
+        if event_name == "spades":
+            return SpadesEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+                mode=event_cfg.mode,
+            )
+        if event_name == "hearts":
+            return HeartsEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+                mode=event_cfg.mode,
             )
         raise ValueError(f"Unknown event: {event_name!r}")
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Spades Action",
+  "oneOf": [
+    {
+      "title": "Bid",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "bid" },
+        "bid": { "type": "integer", "minimum": 0, "maximum": 13 },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "bid"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Play card",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "play" },
+        "card": { "type": "string" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "card"],
+      "additionalProperties": false
+    }
+  ]
+}

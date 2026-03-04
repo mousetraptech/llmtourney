@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hearts Action",
+  "oneOf": [
+    {
+      "title": "Pass cards",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "pass" },
+        "cards": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "cards"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Play card",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "const": "play" },
+        "card": { "type": "string" },
+        "reasoning": { "type": "string" }
+      },
+      "required": ["action", "card"],
+      "additionalProperties": false
+    }
+  ]
+}
