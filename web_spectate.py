@@ -80,6 +80,10 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "yahtzee"
     if stem.startswith("storyteller"):
         return "storyteller"
+    if stem.startswith("spades"):
+        return "spades"
+    if stem.startswith("hearts"):
+        return "hearts"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -10981,6 +10985,1857 @@ function drainQueue() {
 </html>"""
 
 
+# ── Spades HTML/CSS/JS ────────────────────────────────────────────
+
+SPADES_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spades Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --felt: #1a3a1a;
+  --team1: #58a6ff;
+  --team2: #d2a8ff;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #d29922;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+.badge-bid { background: var(--magenta); color: #000; }
+.badge-play { background: var(--cyan); color: #000; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+#header .sub { margin-top: 4px; color: var(--dim); }
+.player-a { color: var(--pa); }
+.player-b { color: var(--pb); }
+.player-c { color: var(--pc); }
+.player-d { color: var(--pd); }
+
+/* Team scoreboard */
+#team-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.team-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  border-left: 4px solid var(--border);
+}
+.team-panel.team-1 { border-left-color: var(--team1); }
+.team-panel.team-2 { border-left-color: var(--team2); }
+.team-panel .team-name { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+.team-panel .team-score { font-size: 24px; font-weight: bold; margin: 4px 0; }
+.team-panel .bags-display { font-size: 12px; margin: 2px 0; }
+.bags-ok { color: var(--dim); }
+.bags-warn { color: var(--yellow); }
+.bags-danger { color: var(--red); font-weight: bold; }
+.team-panel .member-bids { font-size: 12px; color: var(--dim); margin: 4px 0; }
+.team-panel .contract-line { font-size: 13px; margin-top: 4px; }
+.nil-badge { display: inline-block; background: var(--red); color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px; font-weight: bold; }
+.nil-success { background: var(--green); color: #000; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--green); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
+
+/* Main area: trick + hands side by side */
+#main-area {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* Trick area */
+#trick-area {
+  background: var(--felt);
+  border: 1px solid #2d5a2d;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+#trick-area .section-label { font-size: 11px; text-transform: uppercase; color: var(--dim); letter-spacing: 1px; margin-bottom: 8px; }
+
+/* Compass trick display */
+.compass {
+  display: grid;
+  grid-template-areas:
+    ".    north ."
+    "west center east"
+    ".    south .";
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 4px;
+  margin: 8px 0;
+  min-height: 140px;
+  align-items: center;
+  justify-items: center;
+}
+.compass-n { grid-area: north; }
+.compass-e { grid-area: east; }
+.compass-s { grid-area: south; }
+.compass-w { grid-area: west; }
+.compass-center { grid-area: center; font-size: 12px; color: var(--dim); text-align: center; }
+.compass-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: center;
+  min-width: 70px;
+}
+.compass-card .card-label { font-size: 10px; color: var(--dim); margin-bottom: 2px; }
+.compass-card .card-value { font-size: 16px; font-weight: bold; }
+.compass-card.winner { border-color: var(--green); background: rgba(63,185,80,0.1); }
+.compass-card.empty { opacity: 0.3; }
+.compass-card .card-value.red { color: var(--red); }
+.compass-card .card-value.black { color: var(--text); }
+
+/* Spades broken indicator */
+.spades-broken { color: var(--cyan); font-weight: bold; font-size: 12px; margin-top: 6px; }
+
+/* Bid collection panel (replaces trick area during bid phase) */
+.bid-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bid-panel.done { border-color: var(--green); }
+.bid-panel.waiting { border-color: var(--yellow); border-style: dashed; }
+
+/* Hand history */
+#hand-history {
+  margin-top: auto;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 11px;
+  border-top: 1px solid #2d5a2d;
+  padding-top: 8px;
+}
+#hand-history .hh-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.hh-positive { color: var(--green); }
+.hh-negative { color: var(--red); }
+
+/* Player hands (god mode) */
+#player-hands {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+}
+.hand-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.3s;
+  position: relative;
+}
+.hand-panel.active { border-color: var(--green); border-width: 2px; }
+.hand-panel.team-1-border { border-top: 3px solid var(--team1); }
+.hand-panel.team-2-border { border-top: 3px solid var(--team2); }
+.hand-panel .model-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+.hand-panel .bid-info { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+.hand-panel .hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 6px 0;
+  min-height: 24px;
+}
+.god-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: var(--magenta);
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 1px;
+}
+.card-pill {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.card-pill.red { color: var(--red); }
+.card-pill.black { color: var(--text); }
+.card-pill.playable { outline: 1px solid var(--green); background: rgba(63,185,80,0.08); }
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* Reasoning panel */
+#reasoning-panel { cursor: pointer; }
+#reasoning-panel .content { max-height: 60px; overflow: hidden; transition: max-height 0.3s; }
+#reasoning-panel.expanded .content { max-height: 300px; }
+
+/* Final panel */
+#final-panel { display: none; text-align: center; border-color: var(--yellow); }
+#final-panel.show { display: block; }
+#final-panel .winner { font-size: 20px; font-weight: bold; margin: 8px 0; }
+#final-panel .standings { font-size: 13px; margin: 6px 0; }
+
+/* Footer */
+#footer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* Compact mode */
+body.compact { padding: 4px; font-size: 11px; }
+body.compact #header { padding: 6px 10px; margin-bottom: 6px; }
+body.compact #header .title { font-size: 13px; }
+body.compact .team-panel { padding: 6px 10px; }
+body.compact .hand-panel { padding: 6px 8px; }
+body.compact .card-pill { font-size: 9px; padding: 0 3px; }
+body.compact #reasoning-panel { display: none; }
+body.compact .panel { padding: 6px 10px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="badge" class="badge badge-live">LIVE</span>
+  <span id="phase-badge" class="badge badge-bid" style="display:none">BID</span>
+  <span class="title">SPADES</span>
+  <div class="sub" id="sub-info">Loading...</div>
+</div>
+
+<div id="team-scores">
+  <div class="team-panel team-1" id="team-1-panel">
+    <div class="team-name" style="color:var(--team1)">Team 1</div>
+    <div class="team-score" id="t1-score">0</div>
+    <div class="bags-display bags-ok" id="t1-bags">Bags: 0/10</div>
+    <div class="member-bids" id="t1-bids"></div>
+    <div class="contract-line" id="t1-contract"></div>
+  </div>
+  <div class="team-panel team-2" id="team-2-panel">
+    <div class="team-name" style="color:var(--team2)">Team 2</div>
+    <div class="team-score" id="t2-score">0</div>
+    <div class="bags-display bags-ok" id="t2-bags">Bags: 0/10</div>
+    <div class="member-bids" id="t2-bids"></div>
+    <div class="contract-line" id="t2-contract"></div>
+  </div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
+</div>
+
+<div id="main-area">
+  <div id="trick-area">
+    <div class="section-label" id="trick-label">Trick 0/13</div>
+    <div id="trick-content"></div>
+    <div id="hand-history">
+      <div class="section-label">Hand History</div>
+      <div id="hh-content"><span style="color:var(--dim);font-style:italic">No completed hands</span></div>
+    </div>
+  </div>
+  <div id="player-hands"></div>
+</div>
+
+<div class="panel" id="reasoning-panel" onclick="this.classList.toggle('expanded')">
+  <h3>Reasoning (click to expand)</h3>
+  <div class="content" id="reasoning-content"><span style="color:var(--dim);font-style:italic">Waiting...</span></div>
+</div>
+
+<div class="panel" id="final-panel">
+  <h3>Final Results</h3>
+  <div id="final-content"></div>
+</div>
+
+<div id="footer">
+  <span id="status-text"><span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...</span>
+  <span>Turns: <span id="turn-count">0</span></span>
+</div>
+
+<script>
+// Teams: team_1 = A+C, team_2 = B+D
+var TEAMS = {team_1: ['player_a','player_c'], team_2: ['player_b','player_d']};
+var PLAYER_TEAM = {};
+Object.keys(TEAMS).forEach(function(t) { TEAMS[t].forEach(function(p) { PLAYER_TEAM[p] = t; }); });
+var PLAY_ORDER = ['player_a','player_b','player_c','player_d'];
+var PIDS = PLAY_ORDER.slice();
+var LABELS = {player_a:'A', player_b:'B', player_c:'C', player_d:'D'};
+var CLASS_NAMES = {player_a:'player-a', player_b:'player-b', player_c:'player-c', player_d:'player-d'};
+// Compass positions: A=north, B=east, C=south, D=west
+var COMPASS = {player_a:'n', player_b:'e', player_c:'s', player_d:'w'};
+
+var S = {
+  models: {},
+  phase: 'bid',
+  gameNumber: 1,
+  gamesPerMatch: 1,
+  handNumber: 1,
+  trickNumber: 0,
+  totalTricks: 13,
+  turnNumber: 0,
+  hands: {},
+  bids: {},
+  teamContracts: {},
+  tricksTaken: {},
+  currentTrick: [],
+  trickLeader: 'player_a',
+  spadesBroken: false,
+  scores: {team_1:0, team_2:0},
+  bags: {team_1:0, team_2:0},
+  trickHistory: [],
+  handHistory: [],
+  matchScores: {},
+  terminal: false,
+  finished: false,
+  finalScores: {},
+  turnCount: 0,
+  lastReasoning: '',
+  lastModel: '',
+  lastLatency: 0,
+  violations: {},
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: {}, strikeLimit: null, waitingOn: '' }
+};
+
+var rawLines = [];
+var turnQueue = [];
+var isReplaying = false;
+var _handsInitialized = false;
+
+if (new URLSearchParams(window.location.search).get('compact') === '1') {
+  document.body.classList.add('compact');
+}
+
+function initHandPanels() {
+  if (_handsInitialized) return;
+  var html = '';
+  // Order: A (team1), B (team2), C (team1), D (team2)
+  PIDS.forEach(function(pid, i) {
+    var team = PLAYER_TEAM[pid];
+    var teamCls = team === 'team_1' ? 'team-1-border' : 'team-2-border';
+    html += '<div class="hand-panel ' + teamCls + '" id="hp-' + pid + '">';
+    if (i === 0) html += '<span class="god-badge">GOD MODE</span>';
+    html += '<div class="model-name ' + CLASS_NAMES[pid] + '" id="hp-name-' + pid + '">Player ' + LABELS[pid] + '</div>';
+    html += '<div class="bid-info" id="hp-bid-' + pid + '"></div>';
+    html += '<div class="hand" id="hp-hand-' + pid + '"></div>';
+    html += '</div>';
+  });
+  document.getElementById('player-hands').innerHTML = html;
+  _handsInitialized = true;
+}
+
+function processTurn(data) {
+  rawLines.push(data);
+
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    var pm = data.player_models || {};
+    PIDS.forEach(function(pid) { if (pm[pid]) S.models[pid] = pm[pid]; });
+    return;
+  }
+
+  S.turnCount++;
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  if (pid && mid) S.models[pid] = mid;
+  var pm = snap.player_models || {};
+  Object.keys(pm).forEach(function(k) { if (!S.models[k]) S.models[k] = pm[k]; });
+
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined && pid) S.shotClock.strikes[pid] = data.cumulative_strikes;
+  S.shotClock.lastTurnTime = Date.now();
+
+  S.phase = snap.phase || S.phase;
+  S.gameNumber = snap.game_number || S.gameNumber;
+  S.gamesPerMatch = snap.games_per_match || S.gamesPerMatch;
+  S.handNumber = snap.hand_number || S.handNumber;
+  S.trickNumber = snap.trick_number || S.trickNumber;
+  S.turnNumber = snap.turn_number || S.turnNumber;
+  S.hands = snap.hands || S.hands;
+  S.bids = snap.bids || S.bids;
+  S.teamContracts = snap.team_contracts || S.teamContracts;
+  S.tricksTaken = snap.tricks_taken || S.tricksTaken;
+  S.currentTrick = snap.current_trick || S.currentTrick;
+  S.trickLeader = snap.trick_leader || S.trickLeader;
+  S.spadesBroken = snap.spades_broken || false;
+  S.scores = snap.scores || S.scores;
+  S.bags = snap.bags || S.bags;
+  S.trickHistory = snap.trick_history || S.trickHistory;
+  S.handHistory = snap.hand_history || S.handHistory;
+  S.matchScores = snap.match_scores || S.matchScores;
+  S.terminal = snap.terminal || false;
+
+  // Derive total tricks from hand sizes at start
+  var anyHand = S.hands[PIDS[0]] || [];
+  var tricksTakenThisHand = 0;
+  PIDS.forEach(function(p) { tricksTakenThisHand += (S.tricksTaken[p] || 0); });
+  S.totalTricks = tricksTakenThisHand + anyHand.length + (S.currentTrick ? S.currentTrick.length : 0);
+  if (S.totalTricks < 1) S.totalTricks = 13;
+
+  // Derive who shot clock is waiting on
+  S.shotClock.waitingOn = deriveActivePlayer();
+
+  var reasoning = data.reasoning_output || '';
+  if (reasoning) {
+    S.lastReasoning = reasoning.length > 200 ? reasoning.substring(0, 197) + '...' : reasoning;
+    S.lastModel = mid;
+  }
+  S.lastLatency = data.latency_ms || 0;
+
+  if (data.violation && pid) {
+    S.violations[pid] = (S.violations[pid] || 0) + 1;
+  }
+}
+
+function deriveActivePlayer() {
+  if (S.phase === 'bid') {
+    // First player without a bid, starting from trick leader (rotates each hand)
+    var startIdx = PLAY_ORDER.indexOf(S.trickLeader);
+    for (var i = 0; i < 4; i++) {
+      var p = PLAY_ORDER[(startIdx + i) % 4];
+      if (S.bids[p] == null) return p;
+    }
+    return S.trickLeader;
+  }
+  // Play phase: trickLeader + offset based on cards played this trick
+  var leaderIdx = PLAY_ORDER.indexOf(S.trickLeader);
+  var offset = S.currentTrick ? S.currentTrick.length : 0;
+  if (offset >= 4) return S.trickLeader; // trick complete, next leader
+  return PLAY_ORDER[(leaderIdx + offset) % 4];
+}
+
+function renderAll() {
+  if (!_handsInitialized) initHandPanels();
+  renderHeader();
+  renderTeamScores();
+  renderShotClock();
+  renderTrickArea();
+  renderPlayerHands();
+  renderHandHistory();
+  renderReasoning();
+  renderFinal();
+  renderFooter();
+}
+
+function renderHeader() {
+  var badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  var phaseBadge = document.getElementById('phase-badge');
+  if (!S.finished) {
+    phaseBadge.style.display = 'inline-block';
+    phaseBadge.textContent = S.phase.toUpperCase();
+    phaseBadge.className = 'badge ' + (S.phase === 'bid' ? 'badge-bid' : 'badge-play');
+  } else {
+    phaseBadge.style.display = 'none';
+  }
+
+  var parts = [];
+  if (S.gamesPerMatch > 1) parts.push('Game ' + S.gameNumber + '/' + S.gamesPerMatch);
+  parts.push('Hand ' + S.handNumber);
+  if (S.phase === 'play') parts.push('Trick ' + S.trickNumber + '/' + S.totalTricks);
+  parts.push('Turn ' + S.turnNumber);
+
+  var models = [];
+  PIDS.forEach(function(pid) {
+    var m = S.models[pid] || ('Player ' + LABELS[pid]);
+    models.push('<span class="' + CLASS_NAMES[pid] + '">' + m + '</span>');
+  });
+  document.getElementById('sub-info').innerHTML = models.join(' <span style="color:var(--dim)">vs</span> ') + ' <span style="color:var(--dim)">|</span> ' + parts.join(' <span style="color:var(--dim)">|</span> ');
+}
+
+function renderTeamScores() {
+  ['team_1','team_2'].forEach(function(team, ti) {
+    var prefix = ti === 0 ? 't1' : 't2';
+    var score = S.scores[team] || 0;
+    var bags = S.bags[team] || 0;
+
+    document.getElementById(prefix + '-score').textContent = score;
+
+    var bagsEl = document.getElementById(prefix + '-bags');
+    bagsEl.textContent = 'Bags: ' + bags + '/10';
+    bagsEl.className = 'bags-display ' + (bags >= 9 ? 'bags-danger' : bags >= 7 ? 'bags-warn' : 'bags-ok');
+
+    // Member bids
+    var members = TEAMS[team];
+    var bidParts = [];
+    members.forEach(function(pid) {
+      var m = S.models[pid] || LABELS[pid];
+      var bid = S.bids[pid];
+      var bidStr = bid != null ? bid : '...';
+      var nilBadge = '';
+      if (bid === 0) nilBadge = ' <span class="nil-badge">NIL</span>';
+      bidParts.push('<span class="' + CLASS_NAMES[pid] + '">' + m + '</span>: ' + bidStr + nilBadge);
+    });
+    document.getElementById(prefix + '-bids').innerHTML = bidParts.join(' &middot; ');
+
+    // Contract vs tricks
+    var contract = S.teamContracts[team];
+    var tricks = 0;
+    members.forEach(function(pid) { tricks += (S.tricksTaken[pid] || 0); });
+    if (contract != null) {
+      document.getElementById(prefix + '-contract').innerHTML = 'Contract: <strong>' + contract + '</strong> Won: <strong>' + tricks + '</strong>';
+    } else {
+      document.getElementById(prefix + '-contract').innerHTML = '';
+    }
+  });
+}
+
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs) return;
+  el.style.display = 'block';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (S.shotClock.lastTurnTime && !isReplaying) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var cls = 'clock-display ';
+    if (remaining <= 5000) cls += 'clock-danger';
+    else if (remaining <= 10000) cls += 'clock-warn';
+    else cls += 'clock-ok';
+    display.className = cls;
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wPid = S.shotClock.waitingOn;
+  var wModel = S.models[wPid] || wPid;
+  label.innerHTML = 'SHOT CLOCK <span style="color:var(--dim)">&middot;</span> ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var strikeParts = [];
+    PIDS.forEach(function(pid) {
+      var s = S.shotClock.strikes[pid] || 0;
+      var m = S.models[pid] || LABELS[pid];
+      strikeParts.push('<span class="' + CLASS_NAMES[pid] + '">' + m + ': ' + s + '/' + S.shotClock.strikeLimit + '</span>');
+    });
+    strikeEl.innerHTML = strikeParts.join(' &middot; ');
+  } else { strikeEl.innerHTML = ''; }
+  if (S.finished) el.style.display = 'none';
+}
+
+function cardHTML(card, extraClass) {
+  var suit = card.slice(-1);
+  var isRed = (suit === '\u2665' || suit === '\u2666');
+  var cls = 'card-pill ' + (isRed ? 'red' : 'black');
+  if (extraClass) cls += ' ' + extraClass;
+  return '<span class="' + cls + '">' + card + '</span>';
+}
+
+function renderTrickArea() {
+  var labelEl = document.getElementById('trick-label');
+
+  if (S.phase === 'bid') {
+    labelEl.textContent = 'Bidding — Hand ' + S.handNumber;
+    var html = '';
+    PLAY_ORDER.forEach(function(pid) {
+      var m = S.models[pid] || LABELS[pid];
+      var bid = S.bids[pid];
+      var hasBid = bid != null;
+      var cls = hasBid ? 'bid-panel done' : 'bid-panel waiting';
+      var bidText = hasBid ? '<strong>' + bid + '</strong>' + (bid === 0 ? ' <span class="nil-badge">NIL</span>' : '') : '<span style="color:var(--yellow)">waiting...</span>';
+      html += '<div class="' + cls + '"><span class="' + CLASS_NAMES[pid] + '">' + m + '</span><span>' + bidText + '</span></div>';
+    });
+    document.getElementById('trick-content').innerHTML = html;
+    return;
+  }
+
+  labelEl.textContent = 'Trick ' + S.trickNumber + '/' + S.totalTricks;
+
+  // Build compass with current trick cards
+  var played = {};
+  var trickWinner = null;
+  var trickComplete = S.currentTrick && S.currentTrick.length >= 4;
+  var ledSuit = S.currentTrick && S.currentTrick.length > 0 ? S.currentTrick[0].card.slice(-1) : '';
+
+  if (S.currentTrick) {
+    S.currentTrick.forEach(function(entry) { played[entry.player] = entry.card; });
+  }
+  // If trick just completed, find winner from trick_history
+  if (trickComplete && S.trickHistory.length > 0) {
+    var lastTrick = S.trickHistory[S.trickHistory.length - 1];
+    trickWinner = lastTrick.winner;
+  }
+
+  var compassHTML = '<div class="compass">';
+  var positions = [{pid:'player_a',cls:'compass-n'},{pid:'player_b',cls:'compass-e'},{pid:'player_c',cls:'compass-s'},{pid:'player_d',cls:'compass-w'}];
+  positions.forEach(function(pos) {
+    var card = played[pos.pid];
+    var m = S.models[pos.pid] || LABELS[pos.pid];
+    var shortName = m.length > 12 ? m.substring(0,10) + '..' : m;
+    var isWinner = trickWinner === pos.pid;
+    var winCls = isWinner ? ' winner' : '';
+    var emptyCls = card ? '' : ' empty';
+    compassHTML += '<div class="compass-card' + winCls + emptyCls + ' ' + pos.cls + '">';
+    compassHTML += '<div class="card-label ' + CLASS_NAMES[pos.pid] + '">' + shortName + '</div>';
+    if (card) {
+      var suit = card.slice(-1);
+      var isRed = (suit === '\u2665' || suit === '\u2666');
+      compassHTML += '<div class="card-value ' + (isRed ? 'red' : 'black') + '">' + card + '</div>';
+    } else {
+      compassHTML += '<div class="card-value" style="color:var(--dim)">--</div>';
+    }
+    compassHTML += '</div>';
+  });
+  // Center: trick info
+  var centerText = '';
+  if (trickComplete && trickWinner) {
+    var wm = S.models[trickWinner] || LABELS[trickWinner];
+    centerText = '<span class="' + CLASS_NAMES[trickWinner] + '">' + wm + '</span> wins';
+  } else if (ledSuit) {
+    var suitNames = {'\u2663':'Clubs','\u2666':'Diamonds','\u2665':'Hearts','\u2660':'Spades'};
+    centerText = 'Led: ' + (suitNames[ledSuit] || ledSuit);
+  } else {
+    centerText = 'Leading...';
+  }
+  compassHTML += '<div class="compass-center">' + centerText + '</div>';
+  compassHTML += '</div>';
+
+  // Spades broken indicator
+  if (S.spadesBroken) {
+    compassHTML += '<div class="spades-broken">\u2660 SPADES BROKEN</div>';
+  }
+
+  document.getElementById('trick-content').innerHTML = compassHTML;
+}
+
+function renderPlayerHands() {
+  if (!_handsInitialized) return;
+  var activePlayer = deriveActivePlayer();
+
+  PIDS.forEach(function(pid) {
+    var panel = document.getElementById('hp-' + pid);
+    var nameEl = document.getElementById('hp-name-' + pid);
+    var bidEl = document.getElementById('hp-bid-' + pid);
+    var handEl = document.getElementById('hp-hand-' + pid);
+
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    nameEl.textContent = model;
+
+    // Active highlight
+    var isActive = (pid === activePlayer && !S.finished);
+    panel.className = panel.className.replace(/ ?active/g, '');
+    if (isActive) panel.className += ' active';
+
+    // Bid + tricks info
+    var bid = S.bids[pid];
+    var tricks = S.tricksTaken[pid] || 0;
+    if (bid != null) {
+      var nilBadge = bid === 0 ? ' <span class="nil-badge">NIL</span>' : '';
+      bidEl.innerHTML = 'Bid: <strong>' + bid + '</strong>' + nilBadge + ' | Won: <strong>' + tricks + '</strong>';
+    } else {
+      bidEl.innerHTML = S.phase === 'bid' ? 'Waiting to bid...' : '';
+    }
+
+    // Hand cards
+    var hand = S.hands[pid] || [];
+    if (hand.length > 0) {
+      // Determine playable cards for active player during play phase
+      var playable = {};
+      if (S.phase === 'play' && pid === activePlayer && !S.finished) {
+        var ledS = S.currentTrick && S.currentTrick.length > 0 ? S.currentTrick[0].card.slice(-1) : null;
+        if (ledS) {
+          var hasSuit = hand.some(function(c) { return c.slice(-1) === ledS; });
+          hand.forEach(function(c) {
+            if (hasSuit) { if (c.slice(-1) === ledS) playable[c] = true; }
+            else playable[c] = true;
+          });
+        } else {
+          // Leading
+          hand.forEach(function(c) {
+            if (!S.spadesBroken && c.slice(-1) === '\u2660') {
+              // Can only lead spades if all cards are spades
+              var allSpades = hand.every(function(cc) { return cc.slice(-1) === '\u2660'; });
+              if (allSpades) playable[c] = true;
+            } else {
+              playable[c] = true;
+            }
+          });
+        }
+      }
+      handEl.innerHTML = hand.map(function(card) {
+        return cardHTML(card, playable[card] ? 'playable' : '');
+      }).join('');
+    } else {
+      handEl.innerHTML = '<span style="color:var(--dim)">(empty)</span>';
+    }
+  });
+}
+
+function renderHandHistory() {
+  var el = document.getElementById('hh-content');
+  if (!S.handHistory || S.handHistory.length === 0) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No completed hands</span>';
+    return;
+  }
+  var html = '';
+  S.handHistory.slice().reverse().forEach(function(h) {
+    html += '<div class="hh-entry" style="margin-bottom:4px">';
+    html += '<strong>H' + h.hand_number + '</strong>: ';
+    ['team_1','team_2'].forEach(function(team, ti) {
+      var t = h.teams ? h.teams[team] : null;
+      if (!t) return;
+      var label = ti === 0 ? 'T1' : 'T2';
+      var pts = t.hand_points || 0;
+      var ptsCls = pts >= 0 ? 'hh-positive' : 'hh-negative';
+      var sign = pts >= 0 ? '+' : '';
+      html += label + ' bid ' + t.contract + ' <span class="' + ptsCls + '">' + sign + pts + '</span>';
+      // Nil results
+      if (t.nil_results && t.nil_results.length > 0) {
+        t.nil_results.forEach(function(nr) {
+          var nm = S.models[nr.player] || LABELS[nr.player] || nr.player;
+          if (nr.success) {
+            html += ' <span class="nil-badge nil-success">' + nm + ' NIL OK</span>';
+          } else {
+            html += ' <span class="nil-badge">' + nm + ' NIL FAIL</span>';
+          }
+        });
+      }
+      html += ' (total: ' + t.total_score + ') ';
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderReasoning() {
+  var el = document.getElementById('reasoning-content');
+  if (!S.lastReasoning) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting...</span>';
+    return;
+  }
+  var latStr = S.lastLatency ? ' (' + (S.lastLatency / 1000).toFixed(1) + 's)' : '';
+  el.innerHTML = '<span style="font-weight:bold">' + (S.lastModel || '?') + latStr + ':</span> <span style="font-style:italic;color:var(--dim)">' + S.lastReasoning.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+}
+
+function renderFinal() {
+  var panel = document.getElementById('final-panel');
+  if (!S.finished) { panel.className = 'panel'; return; }
+  panel.className = 'panel show';
+
+  var scores = S.finalScores || S.matchScores;
+  // Determine winning team
+  var t1Total = 0, t2Total = 0;
+  TEAMS.team_1.forEach(function(p) { t1Total += (scores[p] || 0); });
+  TEAMS.team_2.forEach(function(p) { t2Total += (scores[p] || 0); });
+
+  var winTeam = t1Total >= t2Total ? 'team_1' : 'team_2';
+  var winColor = winTeam === 'team_1' ? 'var(--team1)' : 'var(--team2)';
+  var winLabel = winTeam === 'team_1' ? 'Team 1' : 'Team 2';
+  var winMembers = TEAMS[winTeam].map(function(p) { return S.models[p] || LABELS[p]; }).join(' + ');
+
+  var html = '<div class="winner" style="color:' + winColor + '">' + winLabel + ' WINS!</div>';
+  html += '<div style="font-size:14px;margin:4px 0">' + winMembers + '</div>';
+  html += '<div class="standings" style="margin-top:8px">';
+  html += '<div style="color:var(--team1)">Team 1: ' + S.scores.team_1 + ' pts, ' + S.bags.team_1 + ' bags</div>';
+  html += '<div style="color:var(--team2)">Team 2: ' + S.scores.team_2 + ' pts, ' + S.bags.team_2 + ' bags</div>';
+  html += '</div>';
+  html += '<div class="standings" style="margin-top:8px"><strong>Match Scores</strong>';
+  PIDS.forEach(function(pid) {
+    var m = S.models[pid] || LABELS[pid];
+    html += '<div><span class="' + CLASS_NAMES[pid] + '">' + m + '</span>: ' + Math.round(scores[pid] || 0) + ' pts</div>';
+  });
+  html += '</div>';
+
+  document.getElementById('final-content').innerHTML = html;
+}
+
+function renderFooter() {
+  var st = document.getElementById('status-text');
+  if (S.finished) {
+    st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Match Complete';
+  } else {
+    st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
+  }
+  document.getElementById('turn-count').textContent = S.turnCount;
+}
+
+function drainQueue() {
+  if (turnQueue.length === 0) { isReplaying = false; return; }
+  var batch = turnQueue.splice(0, 5);
+  batch.forEach(function(d) { processTurn(d); });
+  renderAll();
+  if (turnQueue.length > 0) {
+    setTimeout(drainQueue, 150);
+  } else {
+    isReplaying = false;
+    renderShotClock();
+  }
+}
+
+// SSE connection
+var evtPath = '/events';
+if (window.location.pathname.match(/^\/match\//)) {
+  var matchId = window.location.pathname.split('/match/')[1];
+  if (matchId) evtPath = '/events/' + matchId;
+}
+var es = new EventSource(evtPath);
+es.onmessage = function(e) {
+  var data = JSON.parse(e.data);
+  if (isReplaying) {
+    turnQueue.push(data);
+  } else if (rawLines.length === 0) {
+    turnQueue.push(data);
+    isReplaying = true;
+    drainQueue();
+  } else {
+    processTurn(data);
+    renderAll();
+  }
+};
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+</script>
+</body>
+</html>"""
+
+
+# ── Hearts HTML/CSS/JS ────────────────────────────────────────────
+
+HEARTS_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearts Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --felt: #1a3a1a;
+  --gold: #ffd700;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+  --pc: #3fb950;
+  --pd: #d29922;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+.badge-pass { background: var(--magenta); color: #000; }
+.badge-play { background: var(--cyan); color: #000; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+#header .sub { margin-top: 4px; color: var(--dim); }
+.player-a { color: var(--pa); }
+.player-b { color: var(--pb); }
+.player-c { color: var(--pc); }
+.player-d { color: var(--pd); }
+
+/* Player scoreboard — 4 individual panels */
+#player-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.score-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  text-align: center;
+  border-top: 3px solid var(--border);
+}
+.score-panel.sp-a { border-top-color: var(--pa); }
+.score-panel.sp-b { border-top-color: var(--pb); }
+.score-panel.sp-c { border-top-color: var(--pc); }
+.score-panel.sp-d { border-top-color: var(--pd); }
+.score-panel .sp-name { font-weight: bold; font-size: 12px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score-panel .sp-total { font-size: 24px; font-weight: bold; margin: 4px 0; }
+.score-panel .sp-hand-pts { font-size: 12px; color: var(--dim); }
+.score-panel .sp-hearts-broken { font-size: 11px; margin-top: 4px; }
+.hearts-broken-badge { color: var(--red); font-weight: bold; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--green); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
+
+/* Shoot the Moon alert */
+#moon-alert {
+  display: none;
+  background: rgba(255,215,0,0.1);
+  border: 2px solid var(--gold);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+  font-weight: bold;
+  color: var(--gold);
+  animation: pulse 1s infinite;
+}
+
+/* Main area: trick + hands side by side */
+#main-area {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* Trick area */
+#trick-area {
+  background: var(--felt);
+  border: 1px solid #2d5a2d;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+#trick-area .section-label { font-size: 11px; text-transform: uppercase; color: var(--dim); letter-spacing: 1px; margin-bottom: 8px; }
+
+/* Compass trick display */
+.compass {
+  display: grid;
+  grid-template-areas:
+    ".    north ."
+    "west center east"
+    ".    south .";
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 4px;
+  margin: 8px 0;
+  min-height: 140px;
+  align-items: center;
+  justify-items: center;
+}
+.compass-n { grid-area: north; }
+.compass-e { grid-area: east; }
+.compass-s { grid-area: south; }
+.compass-w { grid-area: west; }
+.compass-center { grid-area: center; font-size: 12px; color: var(--dim); text-align: center; }
+.compass-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: center;
+  min-width: 70px;
+}
+.compass-card .card-label { font-size: 10px; color: var(--dim); margin-bottom: 2px; }
+.compass-card .card-value { font-size: 16px; font-weight: bold; }
+.compass-card.winner { border-color: var(--green); background: rgba(63,185,80,0.1); }
+.compass-card.empty { opacity: 0.3; }
+.compass-card .card-value.red { color: var(--red); }
+.compass-card .card-value.black { color: var(--text); }
+
+/* Hearts broken indicator */
+.hearts-broken { color: var(--red); font-weight: bold; font-size: 12px; margin-top: 6px; }
+
+/* Pass phase panel */
+.pass-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pass-panel.done { border-color: var(--green); }
+.pass-panel.waiting { border-color: var(--yellow); border-style: dashed; }
+.pass-direction-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+
+/* Hand history */
+#hand-history {
+  margin-top: auto;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 11px;
+  border-top: 1px solid #2d5a2d;
+  padding-top: 8px;
+}
+#hand-history .hh-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.hh-positive { color: var(--green); }
+.hh-negative { color: var(--red); }
+.hh-moon { color: var(--gold); font-weight: bold; }
+
+/* Player hands (god mode) */
+#player-hands {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+}
+.hand-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.3s;
+  position: relative;
+}
+.hand-panel.active { border-color: var(--green); border-width: 2px; }
+.hand-panel.sp-a-border { border-top: 3px solid var(--pa); }
+.hand-panel.sp-b-border { border-top: 3px solid var(--pb); }
+.hand-panel.sp-c-border { border-top: 3px solid var(--pc); }
+.hand-panel.sp-d-border { border-top: 3px solid var(--pd); }
+.hand-panel .model-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+.hand-panel .penalty-info { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+.hand-panel .hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 6px 0;
+  min-height: 24px;
+}
+.god-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: var(--magenta);
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 1px;
+}
+.card-pill {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.card-pill.red { color: var(--red); }
+.card-pill.black { color: var(--text); }
+.card-pill.playable { outline: 1px solid var(--green); background: rgba(63,185,80,0.08); }
+.card-pill.penalty-heart { outline: 1px solid var(--red); }
+.card-pill.penalty-queen { outline: 1px solid var(--magenta); }
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* Reasoning panel */
+#reasoning-panel { cursor: pointer; }
+#reasoning-panel .content { max-height: 60px; overflow: hidden; transition: max-height 0.3s; }
+#reasoning-panel.expanded .content { max-height: 300px; }
+
+/* Final panel */
+#final-panel { display: none; text-align: center; border-color: var(--yellow); }
+#final-panel.show { display: block; }
+#final-panel .winner { font-size: 20px; font-weight: bold; margin: 8px 0; }
+#final-panel .standings { font-size: 13px; margin: 6px 0; }
+
+/* Footer */
+#footer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* Compact mode */
+body.compact { padding: 4px; font-size: 11px; }
+body.compact #header { padding: 6px 10px; margin-bottom: 6px; }
+body.compact #header .title { font-size: 13px; }
+body.compact .score-panel { padding: 6px 10px; }
+body.compact .hand-panel { padding: 6px 8px; }
+body.compact .card-pill { font-size: 9px; padding: 0 3px; }
+body.compact #reasoning-panel { display: none; }
+body.compact .panel { padding: 6px 10px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="badge" class="badge badge-live">LIVE</span>
+  <span id="phase-badge" class="badge badge-pass" style="display:none">PASS</span>
+  <span class="title">HEARTS</span>
+  <div class="sub" id="sub-info">Loading...</div>
+</div>
+
+<div id="player-scores">
+  <div class="score-panel sp-a" id="sp-a">
+    <div class="sp-name player-a" id="sp-name-a">Player A</div>
+    <div class="sp-total" id="sp-total-a">0</div>
+    <div class="sp-hand-pts" id="sp-hand-a">This hand: 0</div>
+  </div>
+  <div class="score-panel sp-b" id="sp-b">
+    <div class="sp-name player-b" id="sp-name-b">Player B</div>
+    <div class="sp-total" id="sp-total-b">0</div>
+    <div class="sp-hand-pts" id="sp-hand-b">This hand: 0</div>
+  </div>
+  <div class="score-panel sp-c" id="sp-c">
+    <div class="sp-name player-c" id="sp-name-c">Player C</div>
+    <div class="sp-total" id="sp-total-c">0</div>
+    <div class="sp-hand-pts" id="sp-hand-c">This hand: 0</div>
+  </div>
+  <div class="score-panel sp-d" id="sp-d">
+    <div class="sp-name player-d" id="sp-name-d">Player D</div>
+    <div class="sp-total" id="sp-total-d">0</div>
+    <div class="sp-hand-pts" id="sp-hand-d">This hand: 0</div>
+  </div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
+</div>
+
+<div id="moon-alert">SHOOT THE MOON ATTEMPT!</div>
+
+<div id="main-area">
+  <div id="trick-area">
+    <div class="section-label" id="trick-label">Trick 0/13</div>
+    <div id="trick-content"></div>
+    <div id="hand-history">
+      <div class="section-label">Hand History</div>
+      <div id="hh-content"><span style="color:var(--dim);font-style:italic">No completed hands</span></div>
+    </div>
+  </div>
+  <div id="player-hands"></div>
+</div>
+
+<div class="panel" id="reasoning-panel" onclick="this.classList.toggle('expanded')">
+  <h3>Reasoning (click to expand)</h3>
+  <div class="content" id="reasoning-content"><span style="color:var(--dim);font-style:italic">Waiting...</span></div>
+</div>
+
+<div class="panel" id="final-panel">
+  <h3>Final Results</h3>
+  <div id="final-content"></div>
+</div>
+
+<div id="footer">
+  <span id="status-text"><span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...</span>
+  <span>Turns: <span id="turn-count">0</span></span>
+</div>
+
+<script>
+var PLAY_ORDER = ['player_a','player_b','player_c','player_d'];
+var PIDS = PLAY_ORDER.slice();
+var LABELS = {player_a:'A', player_b:'B', player_c:'C', player_d:'D'};
+var CLASS_NAMES = {player_a:'player-a', player_b:'player-b', player_c:'player-c', player_d:'player-d'};
+var COMPASS = {player_a:'n', player_b:'e', player_c:'s', player_d:'w'};
+var PLAYER_COLORS = {player_a:'var(--pa)', player_b:'var(--pb)', player_c:'var(--pc)', player_d:'var(--pd)'};
+
+var S = {
+  models: {},
+  phase: 'pass',
+  gameNumber: 1,
+  gamesPerMatch: 1,
+  handNumber: 1,
+  trickNumber: 0,
+  totalTricks: 13,
+  turnNumber: 0,
+  hands: {},
+  passDirection: 'left',
+  passedCards: {},
+  receivedCards: {},
+  currentTrick: [],
+  trickLeader: 'player_a',
+  dealer: 'player_a',
+  penaltyThisHand: {},
+  gameScores: {},
+  heartsBroken: false,
+  queenTakenBy: null,
+  trickHistory: [],
+  handHistory: [],
+  matchScores: {},
+  terminal: false,
+  finished: false,
+  finalScores: {},
+  turnCount: 0,
+  lastReasoning: '',
+  lastModel: '',
+  lastLatency: 0,
+  violations: {},
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: {}, strikeLimit: null, waitingOn: '' }
+};
+
+var rawLines = [];
+var turnQueue = [];
+var isReplaying = false;
+var _handsInitialized = false;
+
+if (new URLSearchParams(window.location.search).get('compact') === '1') {
+  document.body.classList.add('compact');
+}
+
+function initHandPanels() {
+  if (_handsInitialized) return;
+  var html = '';
+  PIDS.forEach(function(pid, i) {
+    var borderCls = 'sp-' + LABELS[pid].toLowerCase() + '-border';
+    html += '<div class="hand-panel ' + borderCls + '" id="hp-' + pid + '">';
+    if (i === 0) html += '<span class="god-badge">GOD MODE</span>';
+    html += '<div class="model-name ' + CLASS_NAMES[pid] + '" id="hp-name-' + pid + '">Player ' + LABELS[pid] + '</div>';
+    html += '<div class="penalty-info" id="hp-penalty-' + pid + '"></div>';
+    html += '<div class="hand" id="hp-hand-' + pid + '"></div>';
+    html += '</div>';
+  });
+  document.getElementById('player-hands').innerHTML = html;
+  _handsInitialized = true;
+}
+
+function processTurn(data) {
+  rawLines.push(data);
+
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    var pm = data.player_models || {};
+    PIDS.forEach(function(pid) { if (pm[pid]) S.models[pid] = pm[pid]; });
+    return;
+  }
+
+  S.turnCount++;
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  if (pid && mid) S.models[pid] = mid;
+  var pm = snap.player_models || {};
+  Object.keys(pm).forEach(function(k) { if (!S.models[k]) S.models[k] = pm[k]; });
+
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined && pid) S.shotClock.strikes[pid] = data.cumulative_strikes;
+  S.shotClock.lastTurnTime = Date.now();
+
+  S.phase = snap.phase || S.phase;
+  S.gameNumber = snap.game_number || S.gameNumber;
+  S.gamesPerMatch = snap.games_per_match || S.gamesPerMatch;
+  S.handNumber = snap.hand_number || S.handNumber;
+  S.trickNumber = snap.trick_number || S.trickNumber;
+  S.turnNumber = snap.turn_number || S.turnNumber;
+  S.hands = snap.hands || S.hands;
+  S.passDirection = snap.pass_direction || S.passDirection;
+  S.passedCards = snap.passed_cards || S.passedCards;
+  S.receivedCards = snap.received_cards || S.receivedCards;
+  S.currentTrick = snap.current_trick || S.currentTrick;
+  S.trickLeader = snap.trick_leader || S.trickLeader;
+  S.dealer = snap.dealer || S.dealer;
+  S.penaltyThisHand = snap.penalty_this_hand || S.penaltyThisHand;
+  S.gameScores = snap.game_scores || S.gameScores;
+  S.heartsBroken = snap.hearts_broken || false;
+  S.queenTakenBy = snap.queen_taken_by || null;
+  S.trickHistory = snap.trick_history || S.trickHistory;
+  S.handHistory = snap.hand_history || S.handHistory;
+  S.matchScores = snap.match_scores || S.matchScores;
+  S.terminal = snap.terminal || false;
+
+  // Derive total tricks
+  var anyHand = S.hands[PIDS[0]] || [];
+  var tricksTakenThisHand = 0;
+  PIDS.forEach(function(p) { tricksTakenThisHand += (S.penaltyThisHand[p] !== undefined ? 1 : 0); });
+  // Better estimate from trick history length this hand
+  S.totalTricks = 13;
+
+  S.shotClock.waitingOn = deriveActivePlayer();
+
+  var reasoning = data.reasoning_output || '';
+  if (reasoning) {
+    S.lastReasoning = reasoning.length > 200 ? reasoning.substring(0, 197) + '...' : reasoning;
+    S.lastModel = mid;
+  }
+  S.lastLatency = data.latency_ms || 0;
+
+  if (data.violation && pid) {
+    S.violations[pid] = (S.violations[pid] || 0) + 1;
+  }
+}
+
+function deriveActivePlayer() {
+  if (S.phase === 'pass') {
+    // During pass, first player who hasn't passed yet
+    for (var i = 0; i < 4; i++) {
+      var p = PLAY_ORDER[i];
+      if (!S.passedCards[p] || S.passedCards[p].length === 0) return p;
+    }
+    return PLAY_ORDER[0];
+  }
+  // Play phase: trickLeader + offset based on cards played this trick
+  var leaderIdx = PLAY_ORDER.indexOf(S.trickLeader);
+  var offset = S.currentTrick ? S.currentTrick.length : 0;
+  if (offset >= 4) return S.trickLeader;
+  return PLAY_ORDER[(leaderIdx + offset) % 4];
+}
+
+function renderAll() {
+  if (!_handsInitialized) initHandPanels();
+  renderHeader();
+  renderPlayerScores();
+  renderShotClock();
+  renderMoonAlert();
+  renderTrickArea();
+  renderPlayerHands();
+  renderHandHistory();
+  renderReasoning();
+  renderFinal();
+  renderFooter();
+}
+
+function renderHeader() {
+  var badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  var phaseBadge = document.getElementById('phase-badge');
+  if (!S.finished) {
+    phaseBadge.style.display = 'inline-block';
+    phaseBadge.textContent = S.phase.toUpperCase();
+    phaseBadge.className = 'badge ' + (S.phase === 'pass' ? 'badge-pass' : 'badge-play');
+  } else {
+    phaseBadge.style.display = 'none';
+  }
+
+  var parts = [];
+  if (S.gamesPerMatch > 1) parts.push('Game ' + S.gameNumber + '/' + S.gamesPerMatch);
+  parts.push('Hand ' + S.handNumber);
+  if (S.phase === 'play') parts.push('Trick ' + S.trickNumber + '/' + S.totalTricks);
+  parts.push('Turn ' + S.turnNumber);
+
+  var models = [];
+  PIDS.forEach(function(pid) {
+    var m = S.models[pid] || ('Player ' + LABELS[pid]);
+    models.push('<span class="' + CLASS_NAMES[pid] + '">' + m + '</span>');
+  });
+  document.getElementById('sub-info').innerHTML = models.join(' <span style="color:var(--dim)">vs</span> ') + ' <span style="color:var(--dim)">|</span> ' + parts.join(' <span style="color:var(--dim)">|</span> ');
+}
+
+function renderPlayerScores() {
+  PIDS.forEach(function(pid) {
+    var suffix = LABELS[pid].toLowerCase();
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    var shortName = model.length > 16 ? model.substring(0, 14) + '..' : model;
+    document.getElementById('sp-name-' + suffix).textContent = shortName;
+    document.getElementById('sp-total-' + suffix).textContent = S.gameScores[pid] || 0;
+    var handPts = S.penaltyThisHand[pid] || 0;
+    document.getElementById('sp-hand-' + suffix).textContent = 'This hand: ' + handPts;
+  });
+}
+
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs) return;
+  el.style.display = 'block';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (S.shotClock.lastTurnTime && !isReplaying) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var cls = 'clock-display ';
+    if (remaining <= 5000) cls += 'clock-danger';
+    else if (remaining <= 10000) cls += 'clock-warn';
+    else cls += 'clock-ok';
+    display.className = cls;
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wPid = S.shotClock.waitingOn;
+  var wModel = S.models[wPid] || wPid;
+  label.innerHTML = 'SHOT CLOCK <span style="color:var(--dim)">&middot;</span> ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var strikeParts = [];
+    PIDS.forEach(function(pid) {
+      var s = S.shotClock.strikes[pid] || 0;
+      var m = S.models[pid] || LABELS[pid];
+      strikeParts.push('<span class="' + CLASS_NAMES[pid] + '">' + m + ': ' + s + '/' + S.shotClock.strikeLimit + '</span>');
+    });
+    strikeEl.innerHTML = strikeParts.join(' &middot; ');
+  } else { strikeEl.innerHTML = ''; }
+  if (S.finished) el.style.display = 'none';
+}
+
+function renderMoonAlert() {
+  var el = document.getElementById('moon-alert');
+  if (S.finished || S.phase !== 'play') { el.style.display = 'none'; return; }
+  // Check if any player has 20+ penalty points this hand (potential moon)
+  var moonCandidate = null;
+  PIDS.forEach(function(pid) {
+    var pts = S.penaltyThisHand[pid] || 0;
+    if (pts >= 20) moonCandidate = pid;
+  });
+  if (moonCandidate) {
+    var m = S.models[moonCandidate] || LABELS[moonCandidate];
+    el.innerHTML = '\u{1F319} SHOOT THE MOON ATTEMPT \u2014 ' + m + ' has ' + S.penaltyThisHand[moonCandidate] + ' pts!';
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function cardHTML(card, extraClass) {
+  var suit = card.slice(-1);
+  var isRed = (suit === '\u2665' || suit === '\u2666');
+  var cls = 'card-pill ' + (isRed ? 'red' : 'black');
+  if (extraClass) cls += ' ' + extraClass;
+  return '<span class="' + cls + '">' + card + '</span>';
+}
+
+function isPenaltyCard(card) {
+  var suit = card.slice(-1);
+  if (suit === '\u2665') return 'heart';
+  if (card === 'Q\u2660') return 'queen';
+  return null;
+}
+
+function renderTrickArea() {
+  var labelEl = document.getElementById('trick-label');
+
+  if (S.phase === 'pass') {
+    var dirLabel = S.passDirection === 'none' ? 'No Pass' : 'Pass ' + S.passDirection.charAt(0).toUpperCase() + S.passDirection.slice(1);
+    labelEl.textContent = 'Passing \u2014 Hand ' + S.handNumber;
+    var html = '<div class="pass-direction-label">' + dirLabel + '</div>';
+    if (S.passDirection === 'none') {
+      html += '<div style="color:var(--dim);font-style:italic;padding:8px 0">No passing this hand</div>';
+    } else {
+      PLAY_ORDER.forEach(function(pid) {
+        var m = S.models[pid] || LABELS[pid];
+        var hasPassed = S.passedCards[pid] && S.passedCards[pid].length > 0;
+        var cls = hasPassed ? 'pass-panel done' : 'pass-panel waiting';
+        var statusText = hasPassed ? '<span style="color:var(--green)">\u2713 Passed</span>' : '<span style="color:var(--yellow)">waiting...</span>';
+        // Show received cards indicator
+        var received = S.receivedCards[pid] || [];
+        var recvText = received.length > 0 ? ' <span style="color:var(--dim)">| Received ' + received.length + ' cards</span>' : '';
+        html += '<div class="' + cls + '"><span class="' + CLASS_NAMES[pid] + '">' + m + '</span><span>' + statusText + recvText + '</span></div>';
+      });
+    }
+    document.getElementById('trick-content').innerHTML = html;
+    return;
+  }
+
+  labelEl.textContent = 'Trick ' + S.trickNumber + '/' + S.totalTricks;
+
+  // Build compass with current trick cards
+  var played = {};
+  var trickWinner = null;
+  var trickComplete = S.currentTrick && S.currentTrick.length >= 4;
+  var ledSuit = S.currentTrick && S.currentTrick.length > 0 ? S.currentTrick[0].card.slice(-1) : '';
+
+  if (S.currentTrick) {
+    S.currentTrick.forEach(function(entry) { played[entry.player] = entry.card; });
+  }
+  if (trickComplete && S.trickHistory.length > 0) {
+    var lastTrick = S.trickHistory[S.trickHistory.length - 1];
+    trickWinner = lastTrick.winner;
+  }
+
+  var compassHTML = '<div class="compass">';
+  var positions = [{pid:'player_a',cls:'compass-n'},{pid:'player_b',cls:'compass-e'},{pid:'player_c',cls:'compass-s'},{pid:'player_d',cls:'compass-w'}];
+  positions.forEach(function(pos) {
+    var card = played[pos.pid];
+    var m = S.models[pos.pid] || LABELS[pos.pid];
+    var shortName = m.length > 12 ? m.substring(0,10) + '..' : m;
+    var isWinner = trickWinner === pos.pid;
+    var winCls = isWinner ? ' winner' : '';
+    var emptyCls = card ? '' : ' empty';
+    compassHTML += '<div class="compass-card' + winCls + emptyCls + ' ' + pos.cls + '">';
+    compassHTML += '<div class="card-label ' + CLASS_NAMES[pos.pid] + '">' + shortName + '</div>';
+    if (card) {
+      var suit = card.slice(-1);
+      var isRed = (suit === '\u2665' || suit === '\u2666');
+      compassHTML += '<div class="card-value ' + (isRed ? 'red' : 'black') + '">' + card + '</div>';
+    } else {
+      compassHTML += '<div class="card-value" style="color:var(--dim)">--</div>';
+    }
+    compassHTML += '</div>';
+  });
+
+  // Center: trick info
+  var centerText = '';
+  if (trickComplete && trickWinner) {
+    var wm = S.models[trickWinner] || LABELS[trickWinner];
+    centerText = '<span class="' + CLASS_NAMES[trickWinner] + '">' + wm + '</span> wins';
+  } else if (ledSuit) {
+    var suitNames = {'\u2663':'Clubs','\u2666':'Diamonds','\u2665':'Hearts','\u2660':'Spades'};
+    centerText = 'Led: ' + (suitNames[ledSuit] || ledSuit);
+  } else {
+    centerText = 'Leading...';
+  }
+  compassHTML += '<div class="compass-center">' + centerText + '</div>';
+  compassHTML += '</div>';
+
+  // Hearts broken indicator
+  if (S.heartsBroken) {
+    compassHTML += '<div class="hearts-broken">\u2665 HEARTS BROKEN</div>';
+  }
+
+  document.getElementById('trick-content').innerHTML = compassHTML;
+}
+
+function renderPlayerHands() {
+  if (!_handsInitialized) return;
+  var activePlayer = deriveActivePlayer();
+
+  PIDS.forEach(function(pid) {
+    var panel = document.getElementById('hp-' + pid);
+    var nameEl = document.getElementById('hp-name-' + pid);
+    var penaltyEl = document.getElementById('hp-penalty-' + pid);
+    var handEl = document.getElementById('hp-hand-' + pid);
+
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    nameEl.textContent = model;
+
+    // Active highlight
+    var isActive = (pid === activePlayer && !S.finished);
+    panel.className = panel.className.replace(/ ?active/g, '');
+    if (isActive) panel.className += ' active';
+
+    // Penalty info
+    var handPts = S.penaltyThisHand[pid] || 0;
+    var gamePts = S.gameScores[pid] || 0;
+    var queenInfo = S.queenTakenBy === pid ? ' | <span style="color:var(--magenta)">Q\u2660</span>' : '';
+    penaltyEl.innerHTML = 'Hand: <strong>' + handPts + '</strong> | Game: <strong>' + gamePts + '</strong>' + queenInfo;
+
+    // Hand cards
+    var hand = S.hands[pid] || [];
+    if (hand.length > 0) {
+      // Determine playable cards for active player during play phase
+      var playable = {};
+      if (S.phase === 'play' && pid === activePlayer && !S.finished) {
+        var ledS = S.currentTrick && S.currentTrick.length > 0 ? S.currentTrick[0].card.slice(-1) : null;
+        if (ledS) {
+          // Must follow suit
+          var hasSuit = hand.some(function(c) { return c.slice(-1) === ledS; });
+          hand.forEach(function(c) {
+            if (hasSuit) { if (c.slice(-1) === ledS) playable[c] = true; }
+            else playable[c] = true;
+          });
+        } else {
+          // Leading: can't lead hearts unless broken (or all hearts)
+          var allHearts = hand.every(function(c) { return c.slice(-1) === '\u2665'; });
+          hand.forEach(function(c) {
+            if (!S.heartsBroken && c.slice(-1) === '\u2665' && !allHearts) {
+              // Can't lead hearts
+            } else {
+              playable[c] = true;
+            }
+          });
+        }
+        // First trick: no penalty cards unless all penalty
+        if (S.trickNumber === 1) {
+          var allPenalty = hand.every(function(c) { return isPenaltyCard(c) !== null; });
+          if (!allPenalty && ledS) {
+            // If following suit, the suit constraint already applies
+            // If void in led suit, can't play penalty cards unless all are penalty
+            var hasLedSuit = hand.some(function(c) { return c.slice(-1) === ledS; });
+            if (!hasLedSuit) {
+              var nonPenalty = hand.filter(function(c) { return isPenaltyCard(c) === null; });
+              if (nonPenalty.length > 0) {
+                playable = {};
+                nonPenalty.forEach(function(c) { playable[c] = true; });
+              }
+            }
+          }
+        }
+      }
+      handEl.innerHTML = hand.map(function(card) {
+        var extra = playable[card] ? 'playable' : '';
+        var pen = isPenaltyCard(card);
+        if (pen === 'heart') extra += (extra ? ' ' : '') + 'penalty-heart';
+        if (pen === 'queen') extra += (extra ? ' ' : '') + 'penalty-queen';
+        return cardHTML(card, extra);
+      }).join('');
+    } else {
+      handEl.innerHTML = '<span style="color:var(--dim)">(empty)</span>';
+    }
+  });
+}
+
+function renderHandHistory() {
+  var el = document.getElementById('hh-content');
+  if (!S.handHistory || S.handHistory.length === 0) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No completed hands</span>';
+    return;
+  }
+  var html = '';
+  S.handHistory.slice().reverse().forEach(function(h) {
+    html += '<div class="hh-entry" style="margin-bottom:4px">';
+    html += '<strong>H' + h.hand_number + '</strong>: ';
+    // Per-player penalties
+    PIDS.forEach(function(pid) {
+      var m = S.models[pid] || LABELS[pid];
+      var shortM = m.length > 10 ? m.substring(0,8) + '..' : m;
+      var pts = (h.penalty && h.penalty[pid]) || 0;
+      var cls = pts > 0 ? 'hh-negative' : 'hh-positive';
+      html += '<span class="' + CLASS_NAMES[pid] + '">' + shortM + '</span>: <span class="' + cls + '">' + pts + '</span> ';
+    });
+    // Shoot the Moon annotation
+    if (h.shoot_the_moon) {
+      var shooter = S.models[h.shoot_the_moon] || h.shoot_the_moon;
+      html += '<span class="hh-moon">\u{1F319} ' + shooter + ' SHOT THE MOON!</span>';
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderReasoning() {
+  var el = document.getElementById('reasoning-content');
+  if (!S.lastReasoning) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting...</span>';
+    return;
+  }
+  var latStr = S.lastLatency ? ' (' + (S.lastLatency / 1000).toFixed(1) + 's)' : '';
+  el.innerHTML = '<span style="font-weight:bold">' + (S.lastModel || '?') + latStr + ':</span> <span style="font-style:italic;color:var(--dim)">' + S.lastReasoning.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+}
+
+function renderFinal() {
+  var panel = document.getElementById('final-panel');
+  if (!S.finished) { panel.className = 'panel'; return; }
+  panel.className = 'panel show';
+
+  var scores = S.finalScores || S.matchScores;
+  // Sort by match score desc (highest = winner)
+  var sorted = PIDS.slice().sort(function(a,b) { return (scores[b] || 0) - (scores[a] || 0); });
+
+  var winPid = sorted[0];
+  var winModel = S.models[winPid] || LABELS[winPid];
+  var winColor = PLAYER_COLORS[winPid];
+
+  var html = '<div class="winner" style="color:' + winColor + '">' + winModel + ' WINS!</div>';
+  html += '<div style="font-size:12px;color:var(--dim);margin:4px 0">Lowest penalty = Highest match score</div>';
+  html += '<div class="standings" style="margin-top:8px">';
+  sorted.forEach(function(pid, i) {
+    var m = S.models[pid] || LABELS[pid];
+    var matchPts = Math.round(scores[pid] || 0);
+    var gamePts = S.gameScores[pid] || 0;
+    var rank = i === 0 ? '\u{1F947}' : i === 1 ? '\u{1F948}' : i === 2 ? '\u{1F949}' : '';
+    html += '<div><span class="' + CLASS_NAMES[pid] + '">' + rank + ' ' + m + '</span>: ' + matchPts + ' match pts (game penalty: ' + gamePts + ')</div>';
+  });
+  html += '</div>';
+
+  document.getElementById('final-content').innerHTML = html;
+}
+
+function renderFooter() {
+  var st = document.getElementById('status-text');
+  if (S.finished) {
+    st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Match Complete';
+  } else {
+    st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
+  }
+  document.getElementById('turn-count').textContent = S.turnCount;
+}
+
+function drainQueue() {
+  if (turnQueue.length === 0) { isReplaying = false; return; }
+  var batch = turnQueue.splice(0, 5);
+  batch.forEach(function(d) { processTurn(d); });
+  renderAll();
+  if (turnQueue.length > 0) {
+    setTimeout(drainQueue, 150);
+  } else {
+    isReplaying = false;
+    renderShotClock();
+  }
+}
+
+// SSE connection
+var evtPath = '/events';
+if (window.location.pathname.match(/^\/match\//)) {
+  var matchId = window.location.pathname.split('/match/')[1];
+  if (matchId) evtPath = '/events/' + matchId;
+}
+var es = new EventSource(evtPath);
+es.onmessage = function(e) {
+  var data = JSON.parse(e.data);
+  if (isReplaying) {
+    turnQueue.push(data);
+  } else if (rawLines.length === 0) {
+    turnQueue.push(data);
+    isReplaying = true;
+    drainQueue();
+  } else {
+    processTurn(data);
+    renderAll();
+  }
+};
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+</script>
+</body>
+</html>"""
+
+
 # ── Bracket HTML/CSS/JS ───────────────────────────────────────────
 
 BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
@@ -11993,6 +13848,8 @@ def main():
             "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE,
             "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE,
             "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE,
+            "spades": SPADES_HTML_PAGE,
+            "hearts": HEARTS_HTML_PAGE,
             "multi": MULTI_EVENT_HTML_PAGE,
         }
 
@@ -12004,8 +13861,8 @@ def main():
         server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
     else:
         # Single-match spectator mode
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE}
-        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller"}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE}
+        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts"}
 
         SpectatorHandler.event_filter = args.event
 
