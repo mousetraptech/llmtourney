@@ -84,6 +84,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "spades"
     if stem.startswith("hearts"):
         return "hearts"
+    if stem.startswith("ginrummy") or stem.startswith("gin"):
+        return "ginrummy"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -12836,6 +12838,971 @@ setInterval(function() {
 </html>"""
 
 
+# ── Gin Rummy HTML/CSS/JS ─────────────────────────────────────────
+
+GIN_RUMMY_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gin Rummy Spectator</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #7d8590;
+  --cyan: #58a6ff;
+  --magenta: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --felt: #1a3a1a;
+  --gold: #ffd700;
+  --pa: #58a6ff;
+  --pb: #d2a8ff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Header */
+#header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.badge-live { background: var(--green); color: #000; animation: pulse 2s infinite; }
+.badge-final { background: var(--red); color: #fff; }
+.badge-knock { background: var(--yellow); color: #000; }
+.badge-gin { background: var(--gold); color: #000; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#header .title { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+#header .sub { margin-top: 4px; color: var(--dim); }
+.player-a { color: var(--pa); }
+.player-b { color: var(--pb); }
+
+/* Player scoreboard — 2 panels */
+#player-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.score-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  text-align: center;
+  border-top: 3px solid var(--border);
+}
+.score-panel.sp-a { border-top-color: var(--pa); }
+.score-panel.sp-b { border-top-color: var(--pb); }
+.score-panel .sp-name { font-weight: bold; font-size: 12px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score-panel .sp-total { font-size: 28px; font-weight: bold; margin: 4px 0; }
+.score-panel .sp-detail { font-size: 12px; color: var(--dim); }
+.score-panel .sp-series { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.score-panel.active-turn { border-color: var(--green); border-width: 2px; }
+
+/* Shot clock */
+#shot-clock {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#shot-clock .clock-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+#shot-clock .clock-display { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin: 2px 0; }
+#shot-clock .clock-display.clock-ok { color: var(--green); }
+#shot-clock .clock-display.clock-warn { color: var(--yellow); }
+#shot-clock .clock-display.clock-danger { color: var(--red); animation: pulse 0.5s infinite; }
+#shot-clock .strike-info { font-size: 11px; color: var(--dim); }
+
+/* Main area: table + hands side by side */
+#main-area {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* Table area (discard pile, stock, last action) */
+#table-area {
+  background: var(--felt);
+  border: 1px solid #2d5a2d;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+#table-area .section-label { font-size: 11px; text-transform: uppercase; color: var(--dim); letter-spacing: 1px; margin-bottom: 8px; }
+
+/* Card table layout */
+.table-layout {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 24px;
+  margin: 16px 0;
+  flex: 1;
+}
+.pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.pile-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+}
+.pile-count {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* Big card display */
+.big-card {
+  width: 80px;
+  height: 110px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: bold;
+  border: 2px solid var(--border);
+}
+.big-card.face-up {
+  background: #fff;
+  color: #000;
+}
+.big-card.face-up.red { color: var(--red); }
+.big-card.face-down {
+  background: linear-gradient(135deg, #2d5a8c 0%, #1a3d5c 100%);
+  color: var(--dim);
+  font-size: 14px;
+}
+.big-card.empty-pile {
+  background: rgba(255,255,255,0.05);
+  border-style: dashed;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* Draw indicator */
+.draw-indicator {
+  background: rgba(63,185,80,0.15);
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--green);
+  margin-top: 8px;
+}
+.draw-indicator.knock { border-color: var(--yellow); color: var(--yellow); background: rgba(210,153,34,0.15); }
+.draw-indicator.gin { border-color: var(--gold); color: var(--gold); background: rgba(255,215,0,0.15); animation: pulse 1s infinite; }
+.draw-indicator.undercut { border-color: var(--magenta); color: var(--magenta); background: rgba(210,168,255,0.15); }
+
+/* Discard history */
+#discard-history {
+  margin-top: auto;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 11px;
+  border-top: 1px solid #2d5a2d;
+  padding-top: 8px;
+}
+#discard-history .dh-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+/* Player hands (god mode) */
+#player-hands {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+}
+.hand-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.3s;
+  position: relative;
+}
+.hand-panel.active { border-color: var(--green); border-width: 2px; }
+.hand-panel.sp-a-border { border-top: 3px solid var(--pa); }
+.hand-panel.sp-b-border { border-top: 3px solid var(--pb); }
+.hand-panel .model-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+.hand-panel .hand-info { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+.hand-panel .hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 6px 0;
+  min-height: 24px;
+}
+.hand-panel .melds-section {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.god-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: var(--magenta);
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 1px;
+}
+.card-pill {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.card-pill.red { color: var(--red); }
+.card-pill.black { color: var(--text); }
+.card-pill.in-meld { outline: 1px solid var(--green); background: rgba(63,185,80,0.08); }
+.card-pill.deadwood { outline: 1px solid var(--yellow); background: rgba(210,153,34,0.06); }
+
+/* Meld group display */
+.meld-group {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 8px;
+  padding: 2px 4px;
+  background: rgba(63,185,80,0.06);
+  border: 1px solid rgba(63,185,80,0.2);
+  border-radius: 4px;
+}
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+/* Hand history panel */
+#hand-history-panel .hh-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; }
+.hh-gin { color: var(--gold); font-weight: bold; }
+.hh-knock { color: var(--yellow); }
+.hh-undercut { color: var(--magenta); font-weight: bold; }
+.hh-draw { color: var(--dim); font-style: italic; }
+
+/* Reasoning panel */
+#reasoning-panel { cursor: pointer; }
+#reasoning-panel .content { max-height: 60px; overflow: hidden; transition: max-height 0.3s; }
+#reasoning-panel.expanded .content { max-height: 300px; }
+
+/* Final panel */
+#final-panel { display: none; text-align: center; border-color: var(--yellow); }
+#final-panel.show { display: block; }
+#final-panel .winner { font-size: 20px; font-weight: bold; margin: 8px 0; }
+#final-panel .standings { font-size: 13px; margin: 6px 0; }
+
+/* Footer */
+#footer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* Compact mode */
+body.compact { padding: 4px; font-size: 11px; }
+body.compact #header { padding: 6px 10px; margin-bottom: 6px; }
+body.compact #header .title { font-size: 13px; }
+body.compact .score-panel { padding: 6px 10px; }
+body.compact .hand-panel { padding: 6px 8px; }
+body.compact .card-pill { font-size: 9px; padding: 0 3px; }
+body.compact #reasoning-panel { display: none; }
+body.compact .panel { padding: 6px 10px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="badge" class="badge badge-live">LIVE</span>
+  <span id="action-badge" class="badge badge-knock" style="display:none">KNOCK</span>
+  <span class="title">GIN RUMMY</span>
+  <div class="sub" id="sub-info">Loading...</div>
+</div>
+
+<div id="player-scores">
+  <div class="score-panel sp-a" id="sp-a">
+    <div class="sp-name player-a" id="sp-name-a">Player A</div>
+    <div class="sp-total" id="sp-total-a">0</div>
+    <div class="sp-detail" id="sp-detail-a">Hands won: 0</div>
+    <div class="sp-series" id="sp-series-a"></div>
+  </div>
+  <div class="score-panel sp-b" id="sp-b">
+    <div class="sp-name player-b" id="sp-name-b">Player B</div>
+    <div class="sp-total" id="sp-total-b">0</div>
+    <div class="sp-detail" id="sp-detail-b">Hands won: 0</div>
+    <div class="sp-series" id="sp-series-b"></div>
+  </div>
+</div>
+
+<div id="shot-clock">
+  <div class="clock-label" id="clock-label">SHOT CLOCK</div>
+  <div class="clock-display clock-ok" id="clock-display">--.-s</div>
+  <div class="strike-info" id="strike-info"></div>
+</div>
+
+<div id="main-area">
+  <div id="table-area">
+    <div class="section-label" id="table-label">Table</div>
+    <div class="table-layout">
+      <div class="pile">
+        <div class="pile-label">Stock</div>
+        <div class="big-card face-down" id="stock-card">31</div>
+        <div class="pile-count" id="stock-count">31 cards</div>
+      </div>
+      <div class="pile">
+        <div class="pile-label">Discard</div>
+        <div class="big-card face-up" id="discard-card">--</div>
+        <div class="pile-count" id="discard-count">0 cards</div>
+      </div>
+    </div>
+    <div id="last-action"></div>
+    <div id="discard-history">
+      <div class="section-label">Discard History</div>
+      <div id="dh-content"><span style="color:var(--dim);font-style:italic">No discards yet</span></div>
+    </div>
+  </div>
+  <div id="player-hands"></div>
+</div>
+
+<div class="panel" id="hand-history-panel">
+  <h3>Hand History</h3>
+  <div id="hh-content"><span style="color:var(--dim);font-style:italic">No completed hands</span></div>
+</div>
+
+<div class="panel" id="reasoning-panel" onclick="this.classList.toggle('expanded')">
+  <h3>Reasoning (click to expand)</h3>
+  <div class="content" id="reasoning-content"><span style="color:var(--dim);font-style:italic">Waiting...</span></div>
+</div>
+
+<div class="panel" id="final-panel">
+  <h3>Final Results</h3>
+  <div id="final-content"></div>
+</div>
+
+<div id="footer">
+  <span id="status-text"><span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...</span>
+  <span>Turns: <span id="turn-count">0</span></span>
+</div>
+
+<script>
+var PIDS = ['player_a','player_b'];
+var LABELS = {player_a:'A', player_b:'B'};
+var CLASS_NAMES = {player_a:'player-a', player_b:'player-b'};
+var PLAYER_COLORS = {player_a:'var(--pa)', player_b:'var(--pb)'};
+
+var S = {
+  models: {},
+  gameNumber: 1,
+  gamesPerMatch: 1,
+  handNumber: 1,
+  turnNumber: 0,
+  dealer: 'player_a',
+  activePlayer: 'player_a',
+  hands: {},
+  stockSize: 31,
+  discardPile: [],
+  discardHistory: [],
+  gameScores: {},
+  handsWon: {},
+  seriesScores: {},
+  handHistory: [],
+  terminal: false,
+  finished: false,
+  finalScores: {},
+  turnCount: 0,
+  lastReasoning: '',
+  lastModel: '',
+  lastLatency: 0,
+  lastAction: null,
+  violations: {},
+  shotClock: { timeLimitMs: null, lastTurnTime: null, strikes: {}, strikeLimit: null, waitingOn: '' }
+};
+
+var rawLines = [];
+var turnQueue = [];
+var isReplaying = false;
+var _handsInitialized = false;
+
+if (new URLSearchParams(window.location.search).get('compact') === '1') {
+  document.body.classList.add('compact');
+}
+
+function initHandPanels() {
+  if (_handsInitialized) return;
+  var html = '';
+  PIDS.forEach(function(pid, i) {
+    var borderCls = 'sp-' + LABELS[pid].toLowerCase() + '-border';
+    html += '<div class="hand-panel ' + borderCls + '" id="hp-' + pid + '">';
+    if (i === 0) html += '<span class="god-badge">GOD MODE</span>';
+    html += '<div class="model-name ' + CLASS_NAMES[pid] + '" id="hp-name-' + pid + '">Player ' + LABELS[pid] + '</div>';
+    html += '<div class="hand-info" id="hp-info-' + pid + '"></div>';
+    html += '<div class="hand" id="hp-hand-' + pid + '"></div>';
+    html += '<div class="melds-section" id="hp-melds-' + pid + '"></div>';
+    html += '</div>';
+  });
+  document.getElementById('player-hands').innerHTML = html;
+  _handsInitialized = true;
+}
+
+function processTurn(data) {
+  rawLines.push(data);
+
+  if (data.record_type === 'match_summary') {
+    S.finished = true;
+    S.finalScores = data.final_scores || {};
+    var pm = data.player_models || {};
+    PIDS.forEach(function(pid) { if (pm[pid]) S.models[pid] = pm[pid]; });
+    return;
+  }
+
+  S.turnCount++;
+  var snap = data.state_snapshot || {};
+  var pid = data.player_id || '';
+  var mid = data.model_id || '';
+
+  if (pid && mid) S.models[pid] = mid;
+  var pm = snap.player_models || {};
+  Object.keys(pm).forEach(function(k) { if (!S.models[k]) S.models[k] = pm[k]; });
+
+  // Shot clock
+  if (data.time_limit_ms) S.shotClock.timeLimitMs = data.time_limit_ms;
+  if (data.strike_limit) S.shotClock.strikeLimit = data.strike_limit;
+  if (data.cumulative_strikes !== undefined && pid) S.shotClock.strikes[pid] = data.cumulative_strikes;
+  S.shotClock.lastTurnTime = Date.now();
+
+  S.gameNumber = snap.game_number || S.gameNumber;
+  S.gamesPerMatch = snap.games_per_match || S.gamesPerMatch;
+  S.handNumber = snap.hand_number || S.handNumber;
+  S.turnNumber = snap.turn_number || S.turnNumber;
+  S.dealer = snap.dealer || S.dealer;
+  S.activePlayer = snap.active_player || S.activePlayer;
+  S.hands = snap.hands || S.hands;
+  S.stockSize = snap.stock_size !== undefined ? snap.stock_size : S.stockSize;
+  S.discardPile = snap.discard_pile || S.discardPile;
+  S.discardHistory = snap.discard_history || S.discardHistory;
+  S.gameScores = snap.game_scores || S.gameScores;
+  S.handsWon = snap.hands_won || S.handsWon;
+  S.seriesScores = snap.series_scores || S.seriesScores;
+  S.handHistory = snap.hand_history || S.handHistory;
+  S.terminal = snap.terminal || false;
+
+  // Track last action from discard history
+  if (S.discardHistory.length > 0) {
+    S.lastAction = S.discardHistory[S.discardHistory.length - 1];
+  }
+
+  S.shotClock.waitingOn = S.activePlayer;
+
+  var reasoning = data.reasoning_output || '';
+  if (reasoning) {
+    S.lastReasoning = reasoning.length > 200 ? reasoning.substring(0, 197) + '...' : reasoning;
+    S.lastModel = mid;
+  }
+  S.lastLatency = data.latency_ms || 0;
+
+  if (data.violation && pid) {
+    S.violations[pid] = (S.violations[pid] || 0) + 1;
+  }
+}
+
+function cardHTML(card, extraClass) {
+  var suit = card.slice(-1);
+  var isRed = (suit === '\u2665' || suit === '\u2666');
+  var cls = 'card-pill ' + (isRed ? 'red' : 'black');
+  if (extraClass) cls += ' ' + extraClass;
+  return '<span class="' + cls + '">' + card + '</span>';
+}
+
+function bigCardHTML(card) {
+  if (!card) return '--';
+  var suit = card.slice(-1);
+  var isRed = (suit === '\u2665' || suit === '\u2666');
+  return '<span style="color:' + (isRed ? 'var(--red)' : '#000') + '">' + card + '</span>';
+}
+
+/* ---- Simple meld detection for spectator display ---- */
+var RANK_ORDER = {'A':0,'2':1,'3':2,'4':3,'5':4,'6':5,'7':6,'8':7,'9':8,'10':9,'J':10,'Q':11,'K':12};
+var DW_VALUES = {'A':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':10,'Q':10,'K':10};
+
+function cardRank(c) { return c.slice(0,-1); }
+function cardSuit(c) { return c.slice(-1); }
+function cardRankVal(c) { return RANK_ORDER[cardRank(c)]; }
+function dwValue(c) { return DW_VALUES[cardRank(c)]; }
+
+function findMelds(cards) {
+  /* Enumerate all possible melds */
+  var allMelds = [];
+  /* Sets */
+  var byRank = {};
+  cards.forEach(function(c) { var r = cardRank(c); if (!byRank[r]) byRank[r] = []; byRank[r].push(c); });
+  Object.keys(byRank).forEach(function(r) {
+    var g = byRank[r];
+    if (g.length >= 3) {
+      for (var i = 0; i < g.length; i++)
+        for (var j = i+1; j < g.length; j++)
+          for (var k = j+1; k < g.length; k++)
+            allMelds.push([g[i],g[j],g[k]]);
+      if (g.length === 4) allMelds.push(g.slice());
+    }
+  });
+  /* Runs */
+  var bySuit = {};
+  cards.forEach(function(c) { var s = cardSuit(c); if (!bySuit[s]) bySuit[s] = []; bySuit[s].push(c); });
+  Object.keys(bySuit).forEach(function(s) {
+    var g = bySuit[s].slice().sort(function(a,b) { return cardRankVal(a) - cardRankVal(b); });
+    for (var start = 0; start < g.length; start++) {
+      var run = [g[start]];
+      for (var end = start+1; end < g.length; end++) {
+        if (cardRankVal(g[end]) === cardRankVal(g[end-1]) + 1) {
+          run.push(g[end]);
+          if (run.length >= 3) allMelds.push(run.slice());
+        } else break;
+      }
+    }
+  });
+  /* Backtrack to minimize deadwood */
+  var bestDW = 99999;
+  var bestMelds = [];
+  var bestDeadwood = cards.slice();
+  function bt(remaining, chosen) {
+    var dw = 0;
+    remaining.forEach(function(c) { dw += dwValue(c); });
+    if (dw < bestDW) {
+      bestDW = dw;
+      bestMelds = chosen.map(function(m) { return m.slice(); });
+      bestDeadwood = remaining.slice();
+    }
+    var remSet = {};
+    remaining.forEach(function(c) { remSet[c] = true; });
+    var candidates = allMelds.filter(function(m) { return m.every(function(c) { return remSet[c]; }); });
+    var seen = {};
+    candidates.forEach(function(m) {
+      var key = m.slice().sort().join(',');
+      if (seen[key]) return;
+      seen[key] = true;
+      var newRem = remaining.filter(function(c) { return m.indexOf(c) === -1; });
+      chosen.push(m);
+      bt(newRem, chosen);
+      chosen.pop();
+    });
+  }
+  bt(cards.slice(), []);
+  return { melds: bestMelds, deadwood: bestDeadwood, dwValue: bestDW };
+}
+
+function renderAll() {
+  if (!_handsInitialized) initHandPanels();
+  renderHeader();
+  renderPlayerScores();
+  renderShotClock();
+  renderTable();
+  renderPlayerHands();
+  renderDiscardHistory();
+  renderHandHistory();
+  renderReasoning();
+  renderFinal();
+  renderFooter();
+}
+
+function renderHeader() {
+  var badge = document.getElementById('badge');
+  badge.textContent = S.finished ? 'FINAL' : 'LIVE';
+  badge.className = 'badge ' + (S.finished ? 'badge-final' : 'badge-live');
+
+  /* Action badge */
+  var ab = document.getElementById('action-badge');
+  if (S.lastAction && !S.finished) {
+    var act = S.lastAction.action;
+    if (act === 'knock') { ab.style.display = 'inline-block'; ab.textContent = 'KNOCK'; ab.className = 'badge badge-knock'; }
+    else if (act === 'gin') { ab.style.display = 'inline-block'; ab.textContent = 'GIN!'; ab.className = 'badge badge-gin'; }
+    else ab.style.display = 'none';
+  } else ab.style.display = 'none';
+
+  var parts = [];
+  if (S.gamesPerMatch > 1) parts.push('Game ' + S.gameNumber + '/' + S.gamesPerMatch);
+  parts.push('Hand ' + S.handNumber);
+  parts.push('Turn ' + S.turnNumber);
+
+  var models = [];
+  PIDS.forEach(function(pid) {
+    var m = S.models[pid] || ('Player ' + LABELS[pid]);
+    models.push('<span class="' + CLASS_NAMES[pid] + '">' + m + '</span>');
+  });
+  document.getElementById('sub-info').innerHTML = models.join(' <span style="color:var(--dim)">vs</span> ') + ' <span style="color:var(--dim)">|</span> ' + parts.join(' <span style="color:var(--dim)">|</span> ');
+}
+
+function renderPlayerScores() {
+  PIDS.forEach(function(pid) {
+    var suffix = LABELS[pid].toLowerCase();
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    var shortName = model.length > 20 ? model.substring(0, 18) + '..' : model;
+    document.getElementById('sp-name-' + suffix).textContent = shortName;
+    document.getElementById('sp-total-' + suffix).textContent = S.gameScores[pid] || 0;
+    document.getElementById('sp-detail-' + suffix).textContent = 'Hands won: ' + (S.handsWon[pid] || 0);
+
+    var panel = document.getElementById('sp-' + suffix);
+    panel.className = panel.className.replace(/ ?active-turn/g, '');
+    if (pid === S.activePlayer && !S.finished) panel.className += ' active-turn';
+
+    /* Series score */
+    var seriesEl = document.getElementById('sp-series-' + suffix);
+    if (S.gamesPerMatch > 1) {
+      seriesEl.textContent = 'Series: ' + Math.round(S.seriesScores[pid] || 0);
+    } else {
+      seriesEl.textContent = '';
+    }
+  });
+}
+
+function renderShotClock() {
+  var el = document.getElementById('shot-clock');
+  if (!S.shotClock.timeLimitMs) return;
+  el.style.display = 'block';
+  var display = document.getElementById('clock-display');
+  var label = document.getElementById('clock-label');
+  var strikeEl = document.getElementById('strike-info');
+  if (S.shotClock.lastTurnTime && !isReplaying) {
+    var elapsed = Date.now() - S.shotClock.lastTurnTime;
+    var remaining = Math.max(0, S.shotClock.timeLimitMs - elapsed);
+    var secs = remaining / 1000;
+    display.textContent = secs.toFixed(1) + 's';
+    var cls = 'clock-display ';
+    if (remaining <= 5000) cls += 'clock-danger';
+    else if (remaining <= 10000) cls += 'clock-warn';
+    else cls += 'clock-ok';
+    display.className = cls;
+  } else {
+    display.textContent = (S.shotClock.timeLimitMs / 1000).toFixed(1) + 's';
+    display.className = 'clock-display clock-ok';
+  }
+  var wPid = S.shotClock.waitingOn;
+  var wModel = S.models[wPid] || wPid;
+  label.innerHTML = 'SHOT CLOCK <span style="color:var(--dim)">&middot;</span> ' + wModel;
+  if (S.shotClock.strikeLimit) {
+    var strikeParts = [];
+    PIDS.forEach(function(pid) {
+      var s = S.shotClock.strikes[pid] || 0;
+      var m = S.models[pid] || LABELS[pid];
+      strikeParts.push('<span class="' + CLASS_NAMES[pid] + '">' + m + ': ' + s + '/' + S.shotClock.strikeLimit + '</span>');
+    });
+    strikeEl.innerHTML = strikeParts.join(' &middot; ');
+  } else { strikeEl.innerHTML = ''; }
+  if (S.finished) el.style.display = 'none';
+}
+
+function renderTable() {
+  var tableLabel = document.getElementById('table-label');
+  tableLabel.textContent = 'Table \u2014 Hand ' + S.handNumber;
+
+  /* Stock card */
+  var stockEl = document.getElementById('stock-card');
+  var stockCountEl = document.getElementById('stock-count');
+  if (S.stockSize > 0) {
+    stockEl.className = 'big-card face-down';
+    stockEl.textContent = S.stockSize;
+  } else {
+    stockEl.className = 'big-card empty-pile';
+    stockEl.textContent = 'empty';
+  }
+  stockCountEl.textContent = S.stockSize + ' cards';
+
+  /* Discard pile top */
+  var discardEl = document.getElementById('discard-card');
+  var discardCountEl = document.getElementById('discard-count');
+  if (S.discardPile.length > 0) {
+    var topCard = S.discardPile[S.discardPile.length - 1];
+    var suit = topCard.slice(-1);
+    var isRed = (suit === '\u2665' || suit === '\u2666');
+    discardEl.className = 'big-card face-up' + (isRed ? ' red' : '');
+    discardEl.innerHTML = bigCardHTML(topCard);
+  } else {
+    discardEl.className = 'big-card empty-pile';
+    discardEl.textContent = 'empty';
+  }
+  discardCountEl.textContent = S.discardPile.length + ' cards';
+
+  /* Last action indicator */
+  var actionEl = document.getElementById('last-action');
+  if (S.lastAction) {
+    var who = S.models[S.lastAction.player] || LABELS[S.lastAction.player] || '?';
+    var shortWho = who.length > 16 ? who.substring(0,14) + '..' : who;
+    var drewFrom = S.lastAction.drew_from === 'discard' ? 'discard pile' : 'stock';
+    var discarded = S.lastAction.discarded;
+    var act = S.lastAction.action;
+    var cls = 'draw-indicator';
+    var text = '<span class="' + CLASS_NAMES[S.lastAction.player] + '">' + shortWho + '</span> drew from ' + drewFrom + ', discarded ' + cardHTML(discarded);
+    if (act === 'knock') { cls += ' knock'; text += ' \u2014 <strong>KNOCK!</strong>'; }
+    else if (act === 'gin') { cls += ' gin'; text += ' \u2014 <strong>GIN!</strong>'; }
+    actionEl.className = cls;
+    actionEl.innerHTML = text;
+    actionEl.style.display = 'block';
+  } else {
+    actionEl.style.display = 'none';
+  }
+}
+
+function renderPlayerHands() {
+  if (!_handsInitialized) return;
+
+  PIDS.forEach(function(pid) {
+    var panel = document.getElementById('hp-' + pid);
+    var nameEl = document.getElementById('hp-name-' + pid);
+    var infoEl = document.getElementById('hp-info-' + pid);
+    var handEl = document.getElementById('hp-hand-' + pid);
+    var meldsEl = document.getElementById('hp-melds-' + pid);
+
+    var model = S.models[pid] || ('Player ' + LABELS[pid]);
+    nameEl.textContent = model;
+
+    /* Active highlight */
+    var isActive = (pid === S.activePlayer && !S.finished);
+    panel.className = panel.className.replace(/ ?active/g, '');
+    if (isActive) panel.className += ' active';
+
+    /* Hand cards with meld detection */
+    var hand = S.hands[pid] || [];
+    if (hand.length > 0) {
+      var result = findMelds(hand);
+      var inMeld = {};
+      result.melds.forEach(function(m) { m.forEach(function(c) { inMeld[c] = true; }); });
+
+      /* Info line */
+      infoEl.innerHTML = 'Deadwood: <strong>' + result.dwValue + '</strong>' +
+        (result.dwValue <= 10 ? ' <span style="color:var(--green)">(can knock)</span>' : '') +
+        (result.dwValue === 0 ? ' <span style="color:var(--gold)">(GIN!)</span>' : '');
+
+      /* Render cards */
+      handEl.innerHTML = hand.map(function(card) {
+        var extra = inMeld[card] ? 'in-meld' : 'deadwood';
+        return cardHTML(card, extra);
+      }).join('');
+
+      /* Meld groups */
+      if (result.melds.length > 0) {
+        var meldHTML = '<span style="color:var(--dim)">Melds: </span>';
+        result.melds.forEach(function(m) {
+          meldHTML += '<span class="meld-group">';
+          m.forEach(function(c) { meldHTML += cardHTML(c, 'in-meld'); });
+          meldHTML += '</span>';
+        });
+        if (result.deadwood.length > 0) {
+          meldHTML += '<span style="color:var(--dim);margin-left:8px">DW: </span>';
+          result.deadwood.forEach(function(c) { meldHTML += cardHTML(c, 'deadwood'); });
+        }
+        meldsEl.innerHTML = meldHTML;
+        meldsEl.style.display = 'block';
+      } else {
+        meldsEl.innerHTML = '<span style="color:var(--dim)">No melds</span>';
+        meldsEl.style.display = 'block';
+      }
+    } else {
+      handEl.innerHTML = '<span style="color:var(--dim)">(empty)</span>';
+      meldsEl.innerHTML = '';
+      infoEl.innerHTML = '';
+    }
+  });
+}
+
+function renderDiscardHistory() {
+  var el = document.getElementById('dh-content');
+  if (!S.discardHistory || S.discardHistory.length === 0) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No discards yet</span>';
+    return;
+  }
+  var html = '';
+  S.discardHistory.slice().reverse().slice(0, 10).forEach(function(d) {
+    var who = S.models[d.player] || LABELS[d.player] || '?';
+    var shortWho = who.length > 12 ? who.substring(0,10) + '..' : who;
+    var drewFrom = d.drew_from;
+    html += '<div class="dh-entry"><span class="' + CLASS_NAMES[d.player] + '">' + shortWho + '</span> drew ' + drewFrom + ', discarded ' + cardHTML(d.discarded) + '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderHandHistory() {
+  var el = document.getElementById('hh-content');
+  if (!S.handHistory || S.handHistory.length === 0) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">No completed hands</span>';
+    return;
+  }
+  var html = '';
+  S.handHistory.slice().reverse().forEach(function(h) {
+    var cls = 'hh-entry';
+    html += '<div class="' + cls + '">';
+    html += '<strong>H' + h.hand_number + '</strong>: ';
+    if (h.result === 'draw') {
+      html += '<span class="hh-draw">Draw (stock depleted)</span>';
+    } else if (h.result === 'gin') {
+      var w = S.models[h.winner] || h.winner || '?';
+      html += '<span class="hh-gin">GIN! ' + w + ' +' + h.points_awarded + '</span>';
+    } else if (h.result === 'undercut') {
+      var w = S.models[h.winner] || h.winner || '?';
+      html += '<span class="hh-undercut">UNDERCUT! ' + w + ' +' + h.points_awarded + '</span>';
+    } else if (h.result === 'knock') {
+      var w = S.models[h.winner] || h.winner || '?';
+      html += '<span class="hh-knock">Knock: ' + w + ' +' + h.points_awarded + '</span>';
+    }
+    /* Show melds if available */
+    if (h.knocker_melds && h.knocker_melds.length > 0) {
+      var knockerName = S.models[h.knocker] || h.knocker || '?';
+      var shortK = knockerName.length > 10 ? knockerName.substring(0,8) + '..' : knockerName;
+      html += ' <span style="color:var(--dim)">(' + shortK + ': ' + h.knocker_deadwood_value + ' dw)</span>';
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderReasoning() {
+  var el = document.getElementById('reasoning-content');
+  if (!S.lastReasoning) {
+    el.innerHTML = '<span style="color:var(--dim);font-style:italic">Waiting...</span>';
+    return;
+  }
+  var latStr = S.lastLatency ? ' (' + (S.lastLatency / 1000).toFixed(1) + 's)' : '';
+  el.innerHTML = '<span style="font-weight:bold">' + (S.lastModel || '?') + latStr + ':</span> <span style="font-style:italic;color:var(--dim)">' + S.lastReasoning.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+}
+
+function renderFinal() {
+  var panel = document.getElementById('final-panel');
+  if (!S.finished) { panel.className = 'panel'; return; }
+  panel.className = 'panel show';
+
+  var scores = S.finalScores;
+  if (!scores || Object.keys(scores).length === 0) scores = S.seriesScores;
+  var sorted = PIDS.slice().sort(function(a,b) { return (scores[b] || 0) - (scores[a] || 0); });
+
+  var winPid = sorted[0];
+  var winModel = S.models[winPid] || LABELS[winPid];
+  var winColor = PLAYER_COLORS[winPid];
+
+  var html = '<div class="winner" style="color:' + winColor + '">' + winModel + ' WINS!</div>';
+  html += '<div style="font-size:12px;color:var(--dim);margin:4px 0">Best-of-' + S.gamesPerMatch + ' series</div>';
+  html += '<div class="standings" style="margin-top:8px">';
+  sorted.forEach(function(pid, i) {
+    var m = S.models[pid] || LABELS[pid];
+    var pts = Math.round(scores[pid] || 0);
+    var rank = i === 0 ? '\u{1F947}' : '\u{1F948}';
+    html += '<div><span class="' + CLASS_NAMES[pid] + '">' + rank + ' ' + m + '</span>: ' + pts + ' series points</div>';
+  });
+  html += '</div>';
+
+  document.getElementById('final-content').innerHTML = html;
+}
+
+function renderFooter() {
+  var st = document.getElementById('status-text');
+  if (S.finished) {
+    st.innerHTML = '<span class="badge badge-final" style="font-size:10px">FINAL</span> Match Complete';
+  } else {
+    st.innerHTML = '<span class="badge badge-live" style="font-size:10px">LIVE</span> Watching...';
+  }
+  document.getElementById('turn-count').textContent = S.turnCount;
+}
+
+function drainQueue() {
+  if (turnQueue.length === 0) { isReplaying = false; return; }
+  var batch = turnQueue.splice(0, 5);
+  batch.forEach(function(d) { processTurn(d); });
+  renderAll();
+  if (turnQueue.length > 0) {
+    setTimeout(drainQueue, 150);
+  } else {
+    isReplaying = false;
+    renderShotClock();
+  }
+}
+
+/* SSE connection */
+var evtPath = '/events';
+if (window.location.pathname.match(/^\/match\//)) {
+  var matchId = window.location.pathname.split('/match/')[1];
+  if (matchId) evtPath = '/events/' + matchId;
+}
+var es = new EventSource(evtPath);
+es.onmessage = function(e) {
+  var data = JSON.parse(e.data);
+  if (isReplaying) {
+    turnQueue.push(data);
+  } else if (rawLines.length === 0) {
+    turnQueue.push(data);
+    isReplaying = true;
+    drainQueue();
+  } else {
+    processTurn(data);
+    renderAll();
+  }
+};
+setInterval(function() {
+  if (S.shotClock.timeLimitMs && !S.finished && !isReplaying) renderShotClock();
+}, 100);
+</script>
+</body>
+</html>"""
+
+
 # ── Bracket HTML/CSS/JS ───────────────────────────────────────────
 
 BRACKET_HTML_PAGE = r"""<!DOCTYPE html>
@@ -13850,6 +14817,7 @@ def main():
             "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE,
             "spades": SPADES_HTML_PAGE,
             "hearts": HEARTS_HTML_PAGE,
+            "ginrummy": GIN_RUMMY_HTML_PAGE,
             "multi": MULTI_EVENT_HTML_PAGE,
         }
 
@@ -13861,8 +14829,8 @@ def main():
         server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
     else:
         # Single-match spectator mode
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE}
-        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts"}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE, "ginrummy": GIN_RUMMY_HTML_PAGE}
+        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts", "ginrummy": "Gin Rummy"}
 
         SpectatorHandler.event_filter = args.event
 

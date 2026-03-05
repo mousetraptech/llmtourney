@@ -1,0 +1,12 @@
+{
+  "title": "Gin Rummy Action",
+  "type": "object",
+  "properties": {
+    "reasoning": {"type": "string"},
+    "draw": {"type": "string", "enum": ["stock", "discard"]},
+    "action": {"type": "string", "enum": ["continue", "knock", "gin"]},
+    "discard": {"type": "string"}
+  },
+  "required": ["draw", "action", "discard"],
+  "additionalProperties": false
+}
