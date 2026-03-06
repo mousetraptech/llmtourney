@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Avalon Action",
+  "oneOf": [
+    {
+      "title": "Discuss",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "discuss"},
+        "statement": {"type": "string"}
+      },
+      "required": ["action", "statement"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Nominate",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "nominate"},
+        "team": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["action", "team"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Vote",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "vote"},
+        "vote": {"type": "string", "enum": ["approve", "reject"]}
+      },
+      "required": ["action", "vote"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Quest",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "quest"},
+        "play": {"type": "string", "enum": ["success", "fail"]}
+      },
+      "required": ["action", "play"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Assassinate",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "assassinate"},
+        "target": {"type": "string"}
+      },
+      "required": ["action", "target"],
+      "additionalProperties": false
+    }
+  ]
+}

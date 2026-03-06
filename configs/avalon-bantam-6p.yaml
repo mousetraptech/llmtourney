@@ -1,0 +1,74 @@
+# Avalon — 6-player bantamweight test match
+# Hidden role social deduction: 4 good / 2 evil
+
+tournament:
+  name: "avalon-bantam-6p"
+  seed: 42
+  format: round_robin
+  version: "0.1.0"
+  tier: bantam
+
+models:
+  gpt-4o-mini:
+    provider: openrouter
+    model_id: openai/gpt-4o-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  haiku-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  gemini-flash-lite:
+    provider: openrouter
+    model_id: google/gemini-2.0-flash-lite-001
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  llama-4-scout:
+    provider: openrouter
+    model_id: meta-llama/llama-4-scout
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  qwen3-8b:
+    provider: openrouter
+    model_id: qwen/qwen3-8b
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+events:
+  avalon:
+    weight: 1
+    games_per_match: 3
+
+shot_clock:
+  default_ms: 30000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 1024
+  timeout_s: 45.0

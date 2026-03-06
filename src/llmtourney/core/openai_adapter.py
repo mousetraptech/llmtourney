@@ -92,6 +92,9 @@ class OpenAIAdapter(ModelAdapter):
         # Reasoning models only support temperature=1
         if not _reasoning_model:
             kwargs["temperature"] = self._temperature
+        # Disable thinking mode for qwen3 models (runs uncapped CoT otherwise)
+        if "qwen3" in self._model_id.lower():
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
         for attempt in range(2):
             try:
                 return self._client.chat.completions.create(**kwargs)

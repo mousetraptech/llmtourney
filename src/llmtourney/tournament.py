@@ -49,8 +49,9 @@ from llmtourney.events.storyteller.engine import StorytellerEvent
 from llmtourney.events.spades.engine import SpadesEvent
 from llmtourney.events.hearts.engine import HeartsEvent
 from llmtourney.events.ginrummy.engine import GinRummyEvent
+from llmtourney.events.avalon.engine import AvalonEvent
 
-_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller", "spades", "hearts"}
+_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller", "spades", "hearts", "avalon"}
 _CONCURRENT_EVENTS = {"rollerderby", "gauntlet"}
 
 _STRATEGY_REGISTRY = {
@@ -388,6 +389,11 @@ class TournamentEngine:
             )
         if event_name == "ginrummy":
             return GinRummyEvent(games_per_match=event_cfg.games_per_match)
+        if event_name == "avalon":
+            return AvalonEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+            )
         raise ValueError(f"Unknown event: {event_name!r}")
 
     def _get_time_limit_ms(self, model_name: str) -> int | None:

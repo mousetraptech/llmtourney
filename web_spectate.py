@@ -86,6 +86,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "hearts"
     if stem.startswith("ginrummy") or stem.startswith("gin"):
         return "ginrummy"
+    if stem.startswith("avalon"):
+        return "avalon"
     # Fallback: peek at first line
     try:
         with open(jsonl_path) as f:
@@ -12838,6 +12840,318 @@ setInterval(function() {
 </html>"""
 
 
+# ── Avalon HTML/CSS/JS ────────────────────────────────────────────
+
+AVALON_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Avalon — LLM Tourney Spectator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Courier New',monospace;padding:12px}
+h1{text-align:center;color:#c9a0dc;font-size:1.4em;margin-bottom:8px}
+.match-info{text-align:center;font-size:.85em;color:#888;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:1400px;margin:0 auto}
+.panel{background:#16213e;border:1px solid #333;border-radius:8px;padding:12px}
+.panel h2{font-size:1em;color:#c9a0dc;margin-bottom:8px;border-bottom:1px solid #333;padding-bottom:4px}
+
+/* Quest tracker */
+.quest-tracker{display:flex;gap:12px;justify-content:center;margin:12px 0}
+.quest-circle{width:52px;height:52px;border-radius:50%;border:3px solid #444;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:.9em;flex-direction:column}
+.quest-circle.success{border-color:#4caf50;background:rgba(76,175,80,.2);color:#4caf50}
+.quest-circle.fail{border-color:#f44336;background:rgba(244,67,54,.2);color:#f44336}
+.quest-circle.current{border-color:#ffd700;box-shadow:0 0 10px rgba(255,215,0,.3)}
+.quest-circle .q-num{font-size:.7em;color:#888}
+.quest-circle .q-size{font-size:.65em;color:#666}
+
+/* Player cards */
+.player-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.player-card{background:#0f3460;border:1px solid #444;border-radius:6px;padding:8px;text-align:center}
+.player-card.good{border-color:#4caf50}
+.player-card.evil{border-color:#f44336}
+.player-card .name{font-weight:bold;font-size:.9em}
+.player-card .role{font-size:.75em;margin-top:2px;padding:2px 6px;border-radius:3px;display:inline-block}
+.player-card .role.good-role{background:rgba(76,175,80,.3);color:#4caf50}
+.player-card .role.evil-role{background:rgba(244,67,54,.3);color:#f44336}
+.player-card .score{font-size:.8em;color:#ffd700;margin-top:4px}
+.player-card.leader{box-shadow:0 0 8px rgba(255,215,0,.4)}
+
+/* Discussion feed */
+.discussion{max-height:300px;overflow-y:auto;font-size:.82em}
+.discussion .msg{padding:4px 8px;margin:2px 0;border-left:3px solid #444;background:rgba(255,255,255,.03)}
+.discussion .msg .speaker{color:#c9a0dc;font-weight:bold}
+.discussion .msg.good-msg{border-left-color:#4caf50}
+.discussion .msg.evil-msg{border-left-color:#f44336}
+
+/* Vote history */
+.vote-table{width:100%;border-collapse:collapse;font-size:.78em}
+.vote-table th,.vote-table td{padding:3px 6px;border:1px solid #333;text-align:center}
+.vote-table th{background:#0f3460;color:#c9a0dc}
+.vote-table .approve{color:#4caf50}
+.vote-table .reject{color:#f44336}
+
+/* Phase indicator */
+.phase-bar{text-align:center;padding:8px;margin:8px 0;border-radius:6px;font-weight:bold;font-size:1em}
+.phase-bar.discuss{background:rgba(100,181,246,.2);color:#64b5f6}
+.phase-bar.nominate{background:rgba(255,215,0,.2);color:#ffd700}
+.phase-bar.vote{background:rgba(206,147,216,.2);color:#ce93d8}
+.phase-bar.quest{background:rgba(76,175,80,.2);color:#4caf50}
+.phase-bar.assassinate{background:rgba(244,67,54,.3);color:#f44336;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* Assassination reveal */
+.assassination{text-align:center;padding:16px;margin:8px 0;border:2px solid #f44336;border-radius:8px;background:rgba(244,67,54,.1)}
+.assassination h3{color:#f44336;font-size:1.2em;margin-bottom:8px}
+.assassination .result{font-size:1.1em;margin-top:8px}
+.assassination .result.evil-wins{color:#f44336}
+.assassination .result.good-wins{color:#4caf50}
+
+/* Scores */
+.score-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #222;font-size:.85em}
+.score-row .pts{color:#ffd700;font-weight:bold}
+
+.status{text-align:center;color:#888;font-size:.85em;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>THE RESISTANCE: AVALON</h1>
+<div class="match-info" id="matchInfo">Connecting...</div>
+
+<div class="phase-bar" id="phaseBar">Waiting...</div>
+
+<div class="quest-tracker" id="questTracker"></div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Players (God Mode)</h2>
+    <div class="player-grid" id="playerGrid"></div>
+  </div>
+  <div class="panel">
+    <h2>Discussion</h2>
+    <div class="discussion" id="discussion"></div>
+  </div>
+  <div class="panel">
+    <h2>Proposal & Vote History</h2>
+    <div id="voteHistory" style="max-height:300px;overflow-y:auto"></div>
+  </div>
+  <div class="panel">
+    <h2>Match Scores</h2>
+    <div id="scores"></div>
+  </div>
+</div>
+
+<div id="assassination" style="display:none"></div>
+<div class="status" id="status"></div>
+
+<script>
+let lastTurn = 0;
+let isReplaying = false;
+let turnQueue = [];
+let latestSnap = null;
+const playerModels = {};  // player_id -> short model name
+
+function shortModel(name) {
+  if (!name) return '';
+  return name.replace(/^(openai|anthropic|google|x-ai|deepseek|meta-llama|meta|mistralai|amazon|perplexity|cohere|qwen)\//i, '')
+             .replace(/-instruct$/i, '');
+}
+
+function displayName(pid, snap) {
+  if (playerModels[pid]) return playerModels[pid];
+  const labels = (snap && snap.player_labels) || {};
+  return labels[pid] || pid;
+}
+
+function renderQuestTracker(snap) {
+  const el = document.getElementById('questTracker');
+  const sizes = {5:[2,3,2,3,3],6:[2,3,4,3,4],7:[2,3,3,4,4],8:[3,4,4,5,5]};
+  const np = (snap.player_order||[]).length || 6;
+  const qs = sizes[np] || sizes[6];
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    const qr = (snap.quest_results||[]).find(r => r.quest === i+1);
+    let cls = '';
+    if (qr) cls = qr.result === 'success' ? 'success' : 'fail';
+    else if (i+1 === snap.quest_number) cls = 'current';
+    html += `<div class="quest-circle ${cls}">
+      <span class="q-num">Q${i+1}</span>
+      ${qr ? qr.result.toUpperCase() : qs[i]}
+      <span class="q-size">${qr ? qr.success_count+'S '+qr.fail_count+'F' : 'need '+qs[i]}</span>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderPhase(snap) {
+  const el = document.getElementById('phaseBar');
+  const p = snap.phase || 'unknown';
+  el.className = 'phase-bar ' + p;
+  const leaderName = displayName(snap.leader||'', snap);
+  const teamNames = (snap.proposed_team||[]).map(id => displayName(id, snap));
+  const phaseLabels = {
+    discuss: 'DISCUSSION PHASE',
+    nominate: 'NOMINATION PHASE — Leader: ' + leaderName,
+    vote: 'VOTING PHASE — Team: ' + teamNames.join(', '),
+    quest: 'QUEST PHASE — Team: ' + teamNames.join(', '),
+    assassinate: 'ASSASSINATION PHASE'
+  };
+  el.textContent = phaseLabels[p] || p.toUpperCase();
+}
+
+function renderPlayers(snap) {
+  const el = document.getElementById('playerGrid');
+  const order = snap.player_order || [];
+  const roles = snap.roles || {};
+  const teams = snap.teams || {};
+  const scores = snap.match_scores || {};
+  const labels = snap.player_labels || {};
+  const leader = snap.leader || '';
+  let html = '';
+  for (const pid of order) {
+    const role = roles[pid] || '?';
+    const team = teams[pid] || '?';
+    const name = displayName(pid, snap);
+    const isLeader = pid === leader;
+    html += `<div class="player-card ${team} ${isLeader?'leader':''}">
+      <div class="name">${name} ${isLeader?'&#x1f451;':''}</div>
+      <div class="role ${team==='good'?'good-role':'evil-role'}">${role.toUpperCase()}</div>
+      <div class="score">${(scores[pid]||0).toFixed(0)} pts</div>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderDiscussion(snap) {
+  const el = document.getElementById('discussion');
+  const stmts = snap.discussion_statements || {};
+  const roles = snap.roles || {};
+  const teams = snap.teams || {};
+  const labels = snap.player_labels || {};
+  let html = '';
+  for (const [pid, stmt] of Object.entries(stmts)) {
+    const team = teams[pid] || 'good';
+    const name = displayName(pid, snap);
+    const role = roles[pid] || '';
+    html += `<div class="msg ${team}-msg">
+      <span class="speaker">${name} [${role}]:</span> ${stmt}
+    </div>`;
+  }
+  if (!html) html = '<div style="color:#666;text-align:center;padding:20px">No discussion yet</div>';
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderVoteHistory(snap) {
+  const el = document.getElementById('voteHistory');
+  const history = snap.proposal_history || [];
+  if (!history.length) { el.innerHTML = '<div style="color:#666;text-align:center;padding:20px">No proposals yet</div>'; return; }
+  const labels = snap.player_labels || {};
+  let html = '<table class="vote-table"><thead><tr><th>Q</th><th>#</th><th>Leader</th><th>Team</th>';
+  const order = snap.player_order || [];
+  for (const pid of order) html += `<th>${displayName(pid, snap)}</th>`;
+  html += '<th>Result</th></tr></thead><tbody>';
+  for (const p of history) {
+    html += `<tr><td>${p.quest}</td><td>${p.attempt}</td><td>${displayName(p.leader, snap)}</td>`;
+    const team = (p.proposed_team||[]).map(id=>displayName(id, snap)).join(', ');
+    html += `<td>${team}</td>`;
+    for (const pid of order) {
+      const v = (p.votes||{})[pid] || '-';
+      const cls = v==='approve'?'approve':v==='reject'?'reject':'';
+      html += `<td class="${cls}">${v==='approve'?'Y':v==='reject'?'N':'-'}</td>`;
+    }
+    html += `<td>${p.approved?'<span class="approve">PASS</span>':'<span class="reject">FAIL</span>'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderScores(snap) {
+  const el = document.getElementById('scores');
+  const scores = snap.match_scores || {};
+  const labels = snap.player_labels || {};
+  const roles = snap.roles || {};
+  const teams = snap.teams || {};
+  const order = snap.player_order || [];
+  let entries = order.map(pid => ({pid, name: displayName(pid, snap), score: scores[pid]||0, role: roles[pid]||'', team: teams[pid]||''}));
+  entries.sort((a,b) => b.score - a.score);
+  let html = '';
+  for (const e of entries) {
+    html += `<div class="score-row">
+      <span>${e.name} <span style="color:${e.team==='good'?'#4caf50':'#f44336'};font-size:.8em">[${e.role}]</span></span>
+      <span class="pts">${e.score.toFixed(0)}</span>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderAssassination(snap) {
+  const el = document.getElementById('assassination');
+  if (snap.phase !== 'assassinate' && !snap.assassination_target) { el.style.display = 'none'; return; }
+  const labels = snap.player_labels || {};
+  const roles = snap.roles || {};
+  if (snap.assassination_target) {
+    const target = snap.assassination_target;
+    const correct = snap.assassination_correct;
+    el.style.display = 'block';
+    el.innerHTML = `<div class="assassination">
+      <h3>ASSASSINATION ATTEMPT</h3>
+      <div>Target: <strong>${displayName(target, snap)}</strong> (${roles[target]||'?'})</div>
+      <div class="result ${correct?'evil-wins':'good-wins'}">
+        ${correct ? 'CORRECT! Merlin identified — EVIL WINS!' : 'WRONG! Merlin survives — GOOD WINS!'}
+      </div>
+    </div>`;
+  } else if (snap.phase === 'assassinate') {
+    el.style.display = 'block';
+    el.innerHTML = `<div class="assassination"><h3>ASSASSINATION PHASE</h3><div>Assassin is choosing a target...</div></div>`;
+  }
+}
+
+function renderAll(snap) {
+  if (!snap) return;
+  latestSnap = snap;
+  document.getElementById('matchInfo').textContent =
+    `Game ${snap.game_number||1} of ${snap.games_per_match||3} | Turn ${snap.turn_number||0} | Good: ${snap.good_wins||0} Evil: ${snap.evil_wins||0}`;
+  renderQuestTracker(snap);
+  renderPhase(snap);
+  renderPlayers(snap);
+  renderDiscussion(snap);
+  renderVoteHistory(snap);
+  renderScores(snap);
+  renderAssassination(snap);
+  document.getElementById('status').textContent = snap.terminal ? 'Match complete' : '';
+}
+
+// SSE connection
+const es = new EventSource('/events');
+es.onmessage = function(e) {
+  try {
+    const data = JSON.parse(e.data);
+    // Extract model names from each turn
+    if (data.player_id && data.model_id && !playerModels[data.player_id]) {
+      playerModels[data.player_id] = shortModel(data.model_id);
+    }
+    const pm = data.player_models || {};
+    Object.keys(pm).forEach(k => {
+      if (pm[k] && !playerModels[k]) playerModels[k] = shortModel(pm[k]);
+    });
+    if (data.record_type === 'match_summary') {
+      document.getElementById('status').textContent = 'Match complete';
+      if (data.state_snapshot) renderAll(data.state_snapshot);
+      return;
+    }
+    const snap = data.state_snapshot || {};
+    if (snap.phase) renderAll(snap);
+  } catch(err) { console.error('Parse error:', err); }
+};
+es.onerror = function() {
+  document.getElementById('status').textContent = 'Connection lost — retrying...';
+};
+</script>
+</body>
+</html>"""
+
+
 # ── Gin Rummy HTML/CSS/JS ─────────────────────────────────────────
 
 GIN_RUMMY_HTML_PAGE = r"""<!DOCTYPE html>
@@ -14818,6 +15132,7 @@ def main():
             "spades": SPADES_HTML_PAGE,
             "hearts": HEARTS_HTML_PAGE,
             "ginrummy": GIN_RUMMY_HTML_PAGE,
+            "avalon": AVALON_HTML_PAGE,
             "multi": MULTI_EVENT_HTML_PAGE,
         }
 
@@ -14829,8 +15144,8 @@ def main():
         server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
     else:
         # Single-match spectator mode
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE, "ginrummy": GIN_RUMMY_HTML_PAGE}
-        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts", "ginrummy": "Gin Rummy"}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE, "ginrummy": GIN_RUMMY_HTML_PAGE, "avalon": AVALON_HTML_PAGE}
+        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts", "ginrummy": "Gin Rummy", "avalon": "Avalon"}
 
         SpectatorHandler.event_filter = args.event
 
