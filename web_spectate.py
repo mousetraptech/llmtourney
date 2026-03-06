@@ -13190,6 +13190,7 @@ h1{text-align:center;color:#c9a0dc;font-size:1.4em;margin-bottom:8px}
 .player-card{background:#0f3460;border:2px solid #444;border-radius:6px;padding:8px 12px;text-align:center;min-width:120px;flex:0 0 auto}
 .player-card.town{border-color:#4caf50}
 .player-card.mafia{border-color:#f44336}
+.player-card.active{box-shadow:0 0 12px 3px #ffd700;border-color:#ffd700!important}
 .player-card.dead{opacity:.4}
 .player-card.dead .name{text-decoration:line-through}
 .player-card .name{font-weight:bold;font-size:.9em}
@@ -13274,6 +13275,7 @@ h1{text-align:center;color:#c9a0dc;font-size:1.4em;margin-bottom:8px}
 
 <script>
 let latestSnap = null;
+let currentPlayerId = null;
 const playerModels = {};
 
 function shortModel(name) {
@@ -13317,7 +13319,8 @@ function renderPlayers(snap) {
     const team = teams[pid] || '?';
     const name = dn(pid, snap);
     const isDead = !alive.has(pid);
-    html += '<div class="player-card ' + team + (isDead?' dead':'') + '">'
+    const isActive = !isDead && pid === currentPlayerId;
+    html += '<div class="player-card ' + team + (isDead?' dead':'') + (isActive?' active':'') + '">'
       + '<div class="name">' + name + '</div>'
       + '<div class="role ' + team + '-role">' + role.toUpperCase() + '</div>'
       + '<div class="score">' + (scores[pid]||0).toFixed(0) + ' pts</div>'
@@ -13522,7 +13525,9 @@ es.onmessage = function(e) {
     Object.keys(pm).forEach(k => {
       if (pm[k] && !playerModels[k]) playerModels[k] = shortModel(pm[k]);
     });
+    if (data.player_id) currentPlayerId = data.player_id;
     if (data.record_type === 'match_summary') {
+      currentPlayerId = null;
       document.getElementById('status').textContent = 'Match complete';
       if (data.state_snapshot) renderAll(data.state_snapshot);
       return;

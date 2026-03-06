@@ -384,6 +384,11 @@ class MafiaEvent(MultiplayerSeriesEvent):
         if yes_count > no_count:
             # Majority YES — eliminate
             eliminated_pid = self._vote_target
+            if eliminated_pid not in self._alive:
+                # Already removed by stuck-loop elimination — skip
+                self._current_round_data["day_elimination"] = None
+                self._transition_to_night()
+                return
             eliminated_role = self._roles[eliminated_pid]
             self._alive.remove(eliminated_pid)
             elim_record = {
@@ -445,9 +450,12 @@ class MafiaEvent(MultiplayerSeriesEvent):
                 if self._roles.get(kill_target) == "sheriff":
                     self._doctor_saved_sheriff = True
             else:
-                # Kill succeeds
-                night_killed_pid = kill_target
-                self._alive.remove(kill_target)
+                # Kill succeeds (guard against stuck-loop pre-elimination)
+                if kill_target not in self._alive:
+                    kill_target = None
+                else:
+                    night_killed_pid = kill_target
+                    self._alive.remove(kill_target)
                 elim_record = {
                     "player_id": kill_target,
                     "role": self._roles[kill_target],
