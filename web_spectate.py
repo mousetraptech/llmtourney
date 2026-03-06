@@ -46,7 +46,7 @@ def resolve_jsonl_path(arg: str | None) -> Path:
     if p.exists():
         return p
     # Try with event prefixes
-    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-", "gauntlet-", "rollerderby-", "yahtzee-"):
+    for prefix in ("scrabble-", "tictactoe-", "checkers-", "connectfour-", "holdem-", "reversi-", "bullshit-", "liarsdice-", "gauntlet-", "rollerderby-", "yahtzee-", "mafia-"):
         p = TELEMETRY_DIR / f"{prefix}{arg}.jsonl"
         if p.exists():
             return p
@@ -86,6 +86,8 @@ def detect_event_type(jsonl_path: Path) -> str:
         return "hearts"
     if stem.startswith("ginrummy") or stem.startswith("gin"):
         return "ginrummy"
+    if stem.startswith("mafia"):
+        return "mafia"
     if stem.startswith("avalon"):
         return "avalon"
     # Fallback: peek at first line
@@ -12534,7 +12536,13 @@ function renderMoonAlert() {
   var moonCandidate = null;
   PIDS.forEach(function(pid) {
     var pts = S.penaltyThisHand[pid] || 0;
-    if (pts >= 20) moonCandidate = pid;
+    if (pts >= 20) {
+      // Only show if all OTHER players have 0 penalty pts (moon still possible)
+      var othersClean = PIDS.every(function(other) {
+        return other === pid || (S.penaltyThisHand[other] || 0) === 0;
+      });
+      if (othersClean) moonCandidate = pid;
+    }
   });
   if (moonCandidate) {
     var m = S.models[moonCandidate] || LABELS[moonCandidate];
@@ -13128,6 +13136,385 @@ es.onmessage = function(e) {
   try {
     const data = JSON.parse(e.data);
     // Extract model names from each turn
+    if (data.player_id && data.model_id && !playerModels[data.player_id]) {
+      playerModels[data.player_id] = shortModel(data.model_id);
+    }
+    const pm = data.player_models || {};
+    Object.keys(pm).forEach(k => {
+      if (pm[k] && !playerModels[k]) playerModels[k] = shortModel(pm[k]);
+    });
+    if (data.record_type === 'match_summary') {
+      document.getElementById('status').textContent = 'Match complete';
+      if (data.state_snapshot) renderAll(data.state_snapshot);
+      return;
+    }
+    const snap = data.state_snapshot || {};
+    if (snap.phase) renderAll(snap);
+  } catch(err) { console.error('Parse error:', err); }
+};
+es.onerror = function() {
+  document.getElementById('status').textContent = 'Connection lost — retrying...';
+};
+</script>
+</body>
+</html>"""
+
+
+# ── Mafia HTML/CSS/JS ─────────────────────────────────────────────
+
+MAFIA_HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mafia — LLM Tourney Spectator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Courier New',monospace;padding:12px}
+h1{text-align:center;color:#c9a0dc;font-size:1.4em;margin-bottom:8px}
+.match-info{text-align:center;font-size:.85em;color:#888;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:1400px;margin:0 auto}
+.panel{background:#16213e;border:1px solid #333;border-radius:8px;padding:12px}
+.panel h2{font-size:1em;color:#c9a0dc;margin-bottom:8px;border-bottom:1px solid #333;padding-bottom:4px}
+
+/* Phase bar */
+.phase-bar{text-align:center;padding:8px;margin:8px auto;border-radius:6px;font-weight:bold;font-size:1em;max-width:1400px}
+.phase-bar.discuss{background:rgba(100,181,246,.2);color:#64b5f6}
+.phase-bar.accuse{background:rgba(255,152,0,.2);color:#ff9800}
+.phase-bar.vote{background:rgba(206,147,216,.2);color:#ce93d8}
+.phase-bar.tiebreak{background:rgba(255,235,59,.2);color:#ffeb3b}
+.phase-bar.night_investigate,.phase-bar.night_protect,.phase-bar.night_kill{background:rgba(244,67,54,.15);color:#f44336;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* Player cards */
+.player-grid{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.player-card{background:#0f3460;border:2px solid #444;border-radius:6px;padding:8px 12px;text-align:center;min-width:120px;flex:0 0 auto}
+.player-card.town{border-color:#4caf50}
+.player-card.mafia{border-color:#f44336}
+.player-card.dead{opacity:.4}
+.player-card.dead .name{text-decoration:line-through}
+.player-card .name{font-weight:bold;font-size:.9em}
+.player-card .role{font-size:.75em;margin-top:2px;padding:2px 6px;border-radius:3px;display:inline-block}
+.player-card .role.town-role{background:rgba(76,175,80,.3);color:#4caf50}
+.player-card .role.mafia-role{background:rgba(244,67,54,.3);color:#f44336}
+.player-card .score{font-size:.8em;color:#ffd700;margin-top:4px}
+
+/* Discussion feed */
+.discussion{max-height:350px;overflow-y:auto;font-size:.82em}
+.discussion .msg{padding:4px 8px;margin:2px 0;border-left:3px solid #444;background:rgba(255,255,255,.03)}
+.discussion .msg .speaker{color:#c9a0dc;font-weight:bold}
+.discussion .msg.town-msg{border-left-color:#4caf50}
+.discussion .msg.mafia-msg{border-left-color:#f44336}
+
+/* Accusation pills */
+.acc-pills{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acc-pill{padding:3px 8px;border-radius:12px;font-size:.8em;background:rgba(255,152,0,.2);color:#ff9800;border:1px solid #ff9800}
+
+/* Vote grid */
+.vote-row{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0;font-size:.82em}
+.vote-chip{padding:2px 8px;border-radius:4px;font-size:.8em}
+.vote-chip.yes{background:rgba(76,175,80,.3);color:#4caf50}
+.vote-chip.no{background:rgba(244,67,54,.3);color:#f44336}
+
+/* Round history */
+.round-table{width:100%;border-collapse:collapse;font-size:.78em;margin-top:8px}
+.round-table th,.round-table td{padding:3px 6px;border:1px solid #333;text-align:center}
+.round-table th{background:#0f3460;color:#c9a0dc}
+
+/* Night actions */
+.night-action{padding:4px 8px;margin:3px 0;border-left:3px solid #880000;background:rgba(244,67,54,.05);font-size:.82em}
+.night-action .label{color:#f44336;font-weight:bold;font-size:.75em;text-transform:uppercase}
+.saved-msg{color:#4caf50;font-weight:bold}
+
+/* Elimination log */
+.elim-entry{padding:3px 8px;margin:2px 0;font-size:.82em;border-left:3px solid #666}
+.elim-entry.vote{border-left-color:#ce93d8}
+.elim-entry.night_kill{border-left-color:#f44336}
+
+/* Scores */
+.score-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #222;font-size:.85em}
+.score-row .pts{color:#ffd700;font-weight:bold}
+
+.status{text-align:center;color:#888;font-size:.85em;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>MAFIA</h1>
+<div class="match-info" id="matchInfo">Connecting...</div>
+
+<div class="phase-bar" id="phaseBar">Waiting...</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Players (God Mode)</h2>
+    <div class="player-grid" id="playerGrid"></div>
+  </div>
+  <div class="panel">
+    <h2>Discussion</h2>
+    <div class="discussion" id="discussion"></div>
+  </div>
+  <div class="panel">
+    <h2>Accusations &amp; Votes</h2>
+    <div id="accVotes" style="max-height:350px;overflow-y:auto"></div>
+  </div>
+  <div class="panel">
+    <h2>Night Actions (God Mode)</h2>
+    <div id="nightActions"></div>
+  </div>
+  <div class="panel">
+    <h2>Elimination Timeline</h2>
+    <div id="elimLog" style="max-height:250px;overflow-y:auto"></div>
+  </div>
+  <div class="panel">
+    <h2>Match Scores</h2>
+    <div id="scores"></div>
+  </div>
+</div>
+
+<div class="status" id="status"></div>
+
+<script>
+let latestSnap = null;
+const playerModels = {};
+
+function shortModel(name) {
+  if (!name) return '';
+  return name.replace(/^(openai|anthropic|google|x-ai|deepseek|meta-llama|meta|mistralai|amazon|perplexity|cohere|qwen)\//i, '')
+             .replace(/-instruct$/i, '');
+}
+
+function dn(pid, snap) {
+  if (playerModels[pid]) return playerModels[pid];
+  const labels = (snap && snap.player_labels) || {};
+  return labels[pid] || pid;
+}
+
+function renderPhase(snap) {
+  const el = document.getElementById('phaseBar');
+  const p = snap.phase || 'unknown';
+  el.className = 'phase-bar ' + p;
+  const labels = {
+    discuss: 'DISCUSSION — Round ' + (snap.round_number||1),
+    accuse: 'ACCUSATION PHASE — Round ' + (snap.round_number||1),
+    vote: 'VOTING on ' + dn(snap.vote_target||'', snap) + ' — Round ' + (snap.round_number||1),
+    tiebreak: 'TIEBREAK VOTE — Round ' + (snap.round_number||1),
+    night_investigate: 'NIGHT — Sheriff Investigating',
+    night_protect: 'NIGHT — Doctor Protecting',
+    night_kill: 'NIGHT — Mafia Killing'
+  };
+  el.textContent = labels[p] || p.toUpperCase();
+}
+
+function renderPlayers(snap) {
+  const el = document.getElementById('playerGrid');
+  const order = snap.player_order || [];
+  const roles = snap.roles || {};
+  const teams = snap.teams || {};
+  const scores = snap.match_scores || {};
+  const alive = new Set(snap.alive || []);
+  let html = '';
+  for (const pid of order) {
+    const role = roles[pid] || '?';
+    const team = teams[pid] || '?';
+    const name = dn(pid, snap);
+    const isDead = !alive.has(pid);
+    html += '<div class="player-card ' + team + (isDead?' dead':'') + '">'
+      + '<div class="name">' + name + '</div>'
+      + '<div class="role ' + team + '-role">' + role.toUpperCase() + '</div>'
+      + '<div class="score">' + (scores[pid]||0).toFixed(0) + ' pts</div>'
+      + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderDiscussion(snap) {
+  const el = document.getElementById('discussion');
+  const stmts = snap.discussion_statements || {};
+  const teams = snap.teams || {};
+  const roles = snap.roles || {};
+  let html = '';
+  for (const [pid, stmt] of Object.entries(stmts)) {
+    const team = teams[pid] || 'town';
+    const name = dn(pid, snap);
+    const role = roles[pid] || '';
+    html += '<div class="msg ' + team + '-msg">'
+      + '<span class="speaker">' + name + ' [' + role + ']:</span> ' + stmt
+      + '</div>';
+  }
+  if (!html) html = '<div style="color:#666;text-align:center;padding:20px">No discussion yet</div>';
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderAccVotes(snap) {
+  const el = document.getElementById('accVotes');
+  let html = '';
+
+  // Current accusations
+  const acc = snap.accusations || {};
+  if (Object.keys(acc).length) {
+    html += '<div style="margin-bottom:8px"><strong style="color:#ff9800">Accusations:</strong></div>';
+    html += '<div class="acc-pills">';
+    const tally = {};
+    for (const [accuser, target] of Object.entries(acc)) {
+      const key = target;
+      if (!tally[key]) tally[key] = [];
+      tally[key].push(accuser);
+    }
+    for (const [target, accusers] of Object.entries(tally)) {
+      html += '<span class="acc-pill">' + accusers.map(a=>dn(a,snap)).join(', ')
+        + ' &#x2192; ' + dn(target,snap) + ' (' + accusers.length + ')</span>';
+    }
+    html += '</div>';
+  }
+
+  // Current vote
+  if (snap.vote_target && Object.keys(snap.votes||{}).length) {
+    html += '<div style="margin:8px 0"><strong style="color:#ce93d8">Vote on ' + dn(snap.vote_target, snap) + ':</strong></div>';
+    html += '<div class="vote-row">';
+    for (const [pid, v] of Object.entries(snap.votes)) {
+      const cls = v === 'yes' ? 'yes' : 'no';
+      html += '<span class="vote-chip ' + cls + '">' + dn(pid,snap) + ': ' + v.toUpperCase() + '</span>';
+    }
+    html += '</div>';
+  }
+
+  // Tiebreak
+  if ((snap.tiebreak_candidates||[]).length && Object.keys(snap.tiebreak_votes||{}).length) {
+    html += '<div style="margin:8px 0"><strong style="color:#ffeb3b">Tiebreak (' + snap.tiebreak_candidates.map(c=>dn(c,snap)).join(' vs ') + '):</strong></div>';
+    html += '<div class="vote-row">';
+    for (const [pid, v] of Object.entries(snap.tiebreak_votes)) {
+      html += '<span class="vote-chip" style="background:rgba(255,235,59,.2);color:#ffeb3b">' + dn(pid,snap) + ': ' + dn(v,snap) + '</span>';
+    }
+    html += '</div>';
+  }
+
+  // Round history table
+  const hist = snap.round_history || [];
+  if (hist.length) {
+    html += '<table class="round-table"><thead><tr><th>Rd</th><th>Accusations</th><th>Vote Target</th><th>Vote Result</th><th>Night Kill</th></tr></thead><tbody>';
+    for (const r of hist) {
+      const accStr = Object.entries(r.accusations||{}).map(([a,t])=>dn(a,snap)+'&#x2192;'+dn(t,snap)).join(', ') || '-';
+      const vt = r.vote_target ? dn(r.vote_target, snap) : '-';
+      const dayElim = r.day_elimination;
+      let voteRes = '-';
+      if (dayElim) voteRes = '<span style="color:#f44336">ELIMINATED ' + dn(dayElim.player_id, snap) + '</span>';
+      else if (r.vote_target) voteRes = '<span style="color:#4caf50">SURVIVED</span>';
+      const nk = r.night_kill_announced ? '<span style="color:#f44336">' + dn(r.night_kill_announced, snap) + '</span>' : (r.night_saved ? '<span style="color:#4caf50">SAVED</span>' : '-');
+      html += '<tr><td>' + (r.round||'?') + '</td><td style="text-align:left;font-size:.75em">' + accStr + '</td><td>' + vt + '</td><td>' + voteRes + '</td><td>' + nk + '</td></tr>';
+    }
+    html += '</tbody></table>';
+  }
+
+  if (!html) html = '<div style="color:#666;text-align:center;padding:20px">No accusations yet</div>';
+  el.innerHTML = html;
+}
+
+function renderNightActions(snap) {
+  const el = document.getElementById('nightActions');
+  const hist = snap.round_history || [];
+  const phase = snap.phase || '';
+  let html = '';
+
+  // Show current night phase activity
+  if (phase.startsWith('night_')) {
+    html += '<div class="night-action"><span class="label">Current Night</span> — ';
+    if (phase === 'night_investigate') html += 'Sheriff is choosing a target to investigate...';
+    else if (phase === 'night_protect') html += 'Doctor is choosing someone to protect...';
+    else if (phase === 'night_kill') {
+      const votes = snap.night_kill_votes || {};
+      if (Object.keys(votes).length) {
+        html += 'Kill votes: ';
+        for (const [m, t] of Object.entries(votes)) html += dn(m,snap) + '&#x2192;' + dn(t,snap) + ' ';
+      } else {
+        html += 'Mafia is choosing a target...';
+      }
+    }
+    html += '</div>';
+  }
+
+  // Past night results from round_history
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const r = hist[i];
+    html += '<div style="margin:6px 0;padding:4px;border:1px solid #333;border-radius:4px">';
+    html += '<div style="color:#c9a0dc;font-size:.8em;margin-bottom:4px">Round ' + (r.round||'?') + ' Night</div>';
+
+    if (r.night_kill_target) {
+      html += '<div class="night-action"><span class="label">Mafia Target</span> ' + dn(r.night_kill_target, snap) + '</div>';
+    }
+    if (r.night_saved) {
+      html += '<div class="night-action"><span class="label saved-msg">Doctor Save!</span> Target was protected — the village slept peacefully.</div>';
+    } else if (r.night_kill_announced) {
+      html += '<div class="night-action"><span class="label">Killed</span> ' + dn(r.night_kill_announced, snap) + ' (' + (snap.roles[r.night_kill_announced]||'?') + ')</div>';
+    } else if (!r.night_kill_target) {
+      html += '<div class="night-action" style="color:#666">No kill target</div>';
+    }
+    html += '</div>';
+  }
+
+  if (!html) html = '<div style="color:#666;text-align:center;padding:20px">No night actions yet</div>';
+  el.innerHTML = html;
+}
+
+function renderElimLog(snap) {
+  const el = document.getElementById('elimLog');
+  const elims = snap.eliminated_players || [];
+  if (!elims.length) { el.innerHTML = '<div style="color:#666;text-align:center;padding:20px">No eliminations yet</div>'; return; }
+  let html = '';
+  for (const e of elims) {
+    const cause = e.eliminated_by || 'unknown';
+    const causeLabel = cause === 'vote' ? 'Voted Out' : cause === 'night_kill' ? 'Killed at Night' : cause;
+    html += '<div class="elim-entry ' + cause + '">'
+      + 'R' + (e.round||'?') + ' — <strong>' + dn(e.player_id, snap) + '</strong>'
+      + ' <span style="color:' + ((snap.teams||{})[e.player_id]==='mafia'?'#f44336':'#4caf50') + '">[' + (e.role||'?') + ']</span>'
+      + ' — ' + causeLabel
+      + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderScores(snap) {
+  const el = document.getElementById('scores');
+  const scores = snap.match_scores || {};
+  const roles = snap.roles || {};
+  const teams = snap.teams || {};
+  const order = snap.player_order || [];
+  let entries = order.map(pid => ({pid, name: dn(pid, snap), score: scores[pid]||0, role: roles[pid]||'', team: teams[pid]||''}));
+  entries.sort((a,b) => b.score - a.score);
+  let html = '';
+  for (const e of entries) {
+    html += '<div class="score-row">'
+      + '<span>' + e.name + ' <span style="color:' + (e.team==='town'?'#4caf50':'#f44336') + ';font-size:.8em">[' + e.role + ']</span></span>'
+      + '<span class="pts">' + e.score.toFixed(0) + '</span>'
+      + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderAll(snap) {
+  if (!snap) return;
+  latestSnap = snap;
+  const gl = snap.game_log || [];
+  const townW = gl.filter(g=>g.winner==='town').length;
+  const mafiaW = gl.filter(g=>g.winner==='mafia').length;
+  document.getElementById('matchInfo').textContent =
+    'Game ' + (snap.game_number||1) + ' of ' + (snap.games_per_match||5)
+    + ' | Round ' + (snap.round_number||0) + ' | Turn ' + (snap.turn_number||0)
+    + ' | Town: ' + townW + ' Mafia: ' + mafiaW;
+  renderPhase(snap);
+  renderPlayers(snap);
+  renderDiscussion(snap);
+  renderAccVotes(snap);
+  renderNightActions(snap);
+  renderElimLog(snap);
+  renderScores(snap);
+  document.getElementById('status').textContent = snap.terminal ? 'Match complete' : '';
+}
+
+// SSE connection
+const es = new EventSource('/events');
+es.onmessage = function(e) {
+  try {
+    const data = JSON.parse(e.data);
     if (data.player_id && data.model_id && !playerModels[data.player_id]) {
       playerModels[data.player_id] = shortModel(data.model_id);
     }
@@ -14739,6 +15126,8 @@ class SpectatorHandler(BaseHTTPRequestHandler):
             self._serve_html()
         elif self.path == '/events':
             self._serve_sse()
+        elif self.path == '/state':
+            self._serve_state_json()
         elif self.path == '/runlog':
             self._serve_runlog()
         elif self.path == '/filepath':
@@ -14810,6 +15199,37 @@ class SpectatorHandler(BaseHTTPRequestHandler):
                     time.sleep(0.5)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def _serve_state_json(self):
+        """Serve all telemetry events as a JSON array."""
+        event_filter = getattr(self.__class__, 'event_filter', None)
+        if event_filter:
+            latest = discover_latest_match(event_filter)
+            path = latest if latest else self.jsonl_path
+        else:
+            path = self.jsonl_path
+
+        events = []
+        try:
+            with open(path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except FileNotFoundError:
+            pass
+
+        body = json.dumps(events).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _serve_runlog(self):
         try:
@@ -15109,6 +15529,12 @@ def main():
         help=f"Port to serve on (default: {PORT})",
     )
     parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1, use 0.0.0.0 for all interfaces)",
+    )
+    parser.add_argument(
         "--event",
         type=str,
         default=None,
@@ -15133,19 +15559,20 @@ def main():
             "hearts": HEARTS_HTML_PAGE,
             "ginrummy": GIN_RUMMY_HTML_PAGE,
             "avalon": AVALON_HTML_PAGE,
+            "mafia": MAFIA_HTML_PAGE,
             "multi": MULTI_EVENT_HTML_PAGE,
         }
 
         print(f"Bracket Spectator")
         print(f"  Manifest: {manifest_path}")
-        print(f"  URL:      http://127.0.0.1:{args.port}")
+        print(f"  URL:      http://{args.host}:{args.port}")
         print()
 
-        server = ThreadingHTTPServer(('127.0.0.1', args.port), BracketSpectatorHandler)
+        server = ThreadingHTTPServer((args.host, args.port), BracketSpectatorHandler)
     else:
         # Single-match spectator mode
-        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE, "ginrummy": GIN_RUMMY_HTML_PAGE, "avalon": AVALON_HTML_PAGE}
-        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts", "ginrummy": "Gin Rummy", "avalon": "Avalon"}
+        page_map = {"tictactoe": TTT_HTML_PAGE, "checkers": CHECKERS_HTML_PAGE, "scrabble": HTML_PAGE, "connectfour": CONNECTFOUR_HTML_PAGE, "holdem": HOLDEM_HTML_PAGE, "reversi": REVERSI_HTML_PAGE, "bullshit": BULLSHIT_HTML_PAGE, "liarsdice": LIARSDICE_HTML_PAGE, "gauntlet": GAUNTLET_HTML_PAGE, "rollerderby": CONCURRENT_YAHTZEE_HTML_PAGE, "yahtzee": YAHTZEE_HTML_PAGE, "storyteller": STORYTELLER_HTML_PAGE, "spades": SPADES_HTML_PAGE, "hearts": HEARTS_HTML_PAGE, "ginrummy": GIN_RUMMY_HTML_PAGE, "avalon": AVALON_HTML_PAGE, "mafia": MAFIA_HTML_PAGE}
+        label_map = {"tictactoe": "Tic-Tac-Toe", "checkers": "Checkers", "scrabble": "Scrabble", "connectfour": "Connect Four", "holdem": "Hold'em", "reversi": "Reversi", "bullshit": "Bullshit", "liarsdice": "Liar's Dice", "gauntlet": "Gauntlet", "rollerderby": "Roller Derby", "yahtzee": "Yahtzee", "storyteller": "Storyteller", "spades": "Spades", "hearts": "Hearts", "ginrummy": "Gin Rummy", "avalon": "Avalon", "mafia": "Mafia"}
 
         SpectatorHandler.event_filter = args.event
 
@@ -15168,10 +15595,10 @@ def main():
         if args.event:
             print(f"  Event filter: {args.event}")
         print(f"  File: {jsonl_path}")
-        print(f"  URL:  http://127.0.0.1:{args.port}")
+        print(f"  URL:  http://{args.host}:{args.port}")
         print()
 
-        server = ThreadingHTTPServer(('127.0.0.1', args.port), SpectatorHandler)
+        server = ThreadingHTTPServer((args.host, args.port), SpectatorHandler)
 
     try:
         server.serve_forever()

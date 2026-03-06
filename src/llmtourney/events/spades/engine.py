@@ -494,7 +494,8 @@ class SpadesEvent(MultiplayerSeriesEvent):
             self._trick_number = 0
             self._trick_play_idx = 0
             self._current_trick = []
-            self._trick_leader = "player_a"
+            # Preserve rotated leader from _start_new_hand
+            self._trick_leader = PLAY_ORDER[self._bid_start_idx]
 
     def _apply_play(self, player_id: str, action: dict) -> None:
         card = self._normalize_card(action["card"])
@@ -691,7 +692,7 @@ class SpadesEvent(MultiplayerSeriesEvent):
             "game_number": self._game_number,
             "games_per_match": self._games_per_match,
             "hand_number": self._hand_number,
-            "trick_number": self._trick_number + 1,
+            "trick_number": min(self._trick_number + 1, 13),
             "turn_number": self._turn_number,
             "hands": {p: list(self._hands.get(p, [])) for p in self._player_ids},
             "bids": {p: self._bids.get(p) for p in self._player_ids},

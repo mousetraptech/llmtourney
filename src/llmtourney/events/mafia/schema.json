@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mafia Action",
+  "oneOf": [
+    {
+      "title": "Discuss",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "discuss"},
+        "statement": {"type": "string"}
+      },
+      "required": ["action", "statement"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Accuse",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "accuse"},
+        "target": {"type": "string"}
+      },
+      "required": ["action", "target"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Vote",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "vote"},
+        "vote": {"type": "string", "enum": ["yes", "no"]}
+      },
+      "required": ["action", "vote"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Tiebreak",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "tiebreak"},
+        "target": {"type": "string"}
+      },
+      "required": ["action", "target"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Investigate",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "investigate"},
+        "target": {"type": "string"}
+      },
+      "required": ["action", "target"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Protect",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "protect"},
+        "target": {"type": "string"}
+      },
+      "required": ["action", "target"],
+      "additionalProperties": false
+    },
+    {
+      "title": "Kill",
+      "type": "object",
+      "properties": {
+        "reasoning": {"type": "string"},
+        "action": {"type": "string", "const": "kill"},
+        "target": {"type": "string"}
+      },
+      "required": ["action", "target"],
+      "additionalProperties": false
+    }
+  ]
+}

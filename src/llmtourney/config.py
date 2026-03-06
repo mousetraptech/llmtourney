@@ -35,6 +35,7 @@ class EventConfig:
     race_timeout_s: float = 300.0
     round_cap: int | None = None
     player_starting_stacks: dict[str, int] | None = None  # per-model stacks
+    fixed_roles: dict[str, str] | None = None  # per-player role assignments for Avalon
 
 
 @dataclass
@@ -147,6 +148,7 @@ def load_config(path: Path) -> TournamentConfig:
             race_timeout_s=e.get("race_timeout_s", 300.0),
             round_cap=e.get("round_cap"),
             player_starting_stacks=e.get("player_starting_stacks"),
+            fixed_roles=e.get("fixed_roles"),
         )
 
     # Parse optional shot clock config

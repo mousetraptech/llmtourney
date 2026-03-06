@@ -1,0 +1,82 @@
+# Avalon — 6-player exhibition match with fixed roles
+# The Giant (Opus) as Assassin vs mixed field
+
+tournament:
+  name: "avalon-exhibition-6p"
+  seed: 42
+  format: round_robin
+  version: "0.1.0"
+
+models:
+  claude-opus-4.6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4.6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 120.0
+
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  haiku-4.5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  gemini-flash-lite:
+    provider: openrouter
+    model_id: google/gemini-2.0-flash-lite-001
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1024
+    timeout_s: 45.0
+
+events:
+  avalon:
+    weight: 1
+    games_per_match: 3
+    fixed_roles:
+      claude-opus-4.6: assassin
+      grok-3-mini: morgana
+      deepseek-chat: merlin
+      haiku-4.5: percival
+      gemini-flash-lite: loyal
+      gpt-4o: loyal
+
+shot_clock:
+  default_ms: 60000
+  model_overrides:
+    claude-opus-4.6: 120000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 1024
+  timeout_s: 45.0

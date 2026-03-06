@@ -50,8 +50,9 @@ from llmtourney.events.spades.engine import SpadesEvent
 from llmtourney.events.hearts.engine import HeartsEvent
 from llmtourney.events.ginrummy.engine import GinRummyEvent
 from llmtourney.events.avalon.engine import AvalonEvent
+from llmtourney.events.mafia.engine import MafiaEvent
 
-_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller", "spades", "hearts", "avalon"}
+_MULTIPLAYER_EVENTS = {"holdem", "bullshit", "liarsdice", "yahtzee", "rollerderby", "gauntlet", "storyteller", "spades", "hearts", "avalon", "mafia"}
 _CONCURRENT_EVENTS = {"rollerderby", "gauntlet"}
 
 _STRATEGY_REGISTRY = {
@@ -390,9 +391,33 @@ class TournamentEngine:
         if event_name == "ginrummy":
             return GinRummyEvent(games_per_match=event_cfg.games_per_match)
         if event_name == "avalon":
+            # Convert model-keyed fixed_roles to player_id-keyed
+            fixed_roles = None
+            if event_cfg.fixed_roles and models:
+                import string as _string
+                fixed_roles = {}
+                for i, model in enumerate(models):
+                    pid = f"player_{_string.ascii_lowercase[i]}"
+                    if model in event_cfg.fixed_roles:
+                        fixed_roles[pid] = event_cfg.fixed_roles[model]
             return AvalonEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
+                fixed_roles=fixed_roles,
+            )
+        if event_name == "mafia":
+            fixed_roles = None
+            if event_cfg.fixed_roles and models:
+                import string as _string
+                fixed_roles = {}
+                for i, model in enumerate(models):
+                    pid = f"player_{_string.ascii_lowercase[i]}"
+                    if model in event_cfg.fixed_roles:
+                        fixed_roles[pid] = event_cfg.fixed_roles[model]
+            return MafiaEvent(
+                games_per_match=event_cfg.games_per_match,
+                num_players=num_players,
+                fixed_roles=fixed_roles,
             )
         raise ValueError(f"Unknown event: {event_name!r}")
 

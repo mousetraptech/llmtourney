@@ -135,10 +135,12 @@ class AvalonEvent(MultiplayerSeriesEvent):
         self,
         games_per_match: int = 3,
         num_players: int = 6,
+        fixed_roles: dict[str, str] | None = None,
     ) -> None:
         if num_players not in ROLE_CONFIGS:
             raise ValueError(f"Avalon supports 5-8 players, got {num_players}")
         super().__init__(games_per_match, num_players)
+        self._fixed_roles = fixed_roles
 
         # Per-game state (initialized in _start_new_game)
         self._roles: dict[str, str] = {}
@@ -212,14 +214,23 @@ class AvalonEvent(MultiplayerSeriesEvent):
         self._begin_quest()
 
     def _assign_roles(self) -> None:
-        """Randomly assign roles to players."""
+        """Assign roles to players (fixed if provided, else random)."""
+        good_roles = {"merlin", "percival", "loyal"}
+
+        if self._fixed_roles and len(self._fixed_roles) == self._num_players:
+            self._roles = dict(self._fixed_roles)
+            self._teams = {
+                pid: "good" if role in good_roles else "evil"
+                for pid, role in self._roles.items()
+            }
+            return
+
         config = ROLE_CONFIGS[self._num_players]
         all_roles = list(config["good"]) + list(config["evil"])
         self._rng.shuffle(all_roles)
 
         self._roles = {}
         self._teams = {}
-        good_roles = {"merlin", "percival", "loyal"}
         for i, pid in enumerate(self._player_order):
             role = all_roles[i]
             self._roles[pid] = role
