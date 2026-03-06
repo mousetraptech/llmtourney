@@ -27,7 +27,7 @@ models:
 
   claude-sonnet-4.5:
     provider: openrouter
-    model_id: anthropic/claude-sonnet-4-5-20241022
+    model_id: anthropic/claude-sonnet-4.5
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
     max_output_tokens: 1024
@@ -43,7 +43,7 @@ models:
 
   gemini-2.5-flash:
     provider: openrouter
-    model_id: google/gemini-2.5-flash-preview
+    model_id: google/gemini-2.5-flash
     api_key_env: OPENROUTER_API_KEY
     temperature: 0.0
     max_output_tokens: 1024

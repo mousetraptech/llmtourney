@@ -44,6 +44,8 @@ class TelemetryEntry:
     time_exceeded: bool = False
     cumulative_strikes: int = 0
     strike_limit: int | None = None
+    # Adapter error details (v1.2.0)
+    adapter_error: str | None = None
 
 
 class TelemetryLogger:

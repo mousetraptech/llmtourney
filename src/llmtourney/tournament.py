@@ -242,10 +242,11 @@ class TournamentEngine:
 
     def _safe_query(
         self, adapter, messages: list[dict[str, str]], model_name: str, seed: int
-    ) -> tuple[AdapterResponse, bool]:
+    ) -> tuple[AdapterResponse, bool, str | None]:
         """Call adapter.query, catching AdapterError.
 
-        Returns (response, success). On failure, returns a dummy response.
+        Returns (response, success, error_detail). On failure, returns a
+        dummy response and the error string for telemetry.
         Per-model max_output_tokens and timeout_s override global compute_caps.
         Uses a hard timeout (2x the configured timeout_s) via ThreadPoolExecutor
         to guard against hung HTTP connections.
@@ -269,9 +270,10 @@ class TournamentEngine:
                     context={"seed": seed},
                 )
                 response = future.result(timeout=hard_timeout)
-            return response, True
+            return response, True, None
         except FuturesTimeout:
-            print(f"[WARN] hard timeout ({hard_timeout:.0f}s) for {model_name}")
+            err = f"hard_timeout: {hard_timeout:.0f}s exceeded"
+            print(f"[WARN] {err} for {model_name}")
             return AdapterResponse(
                 raw_text="",
                 reasoning_text=None,
@@ -280,8 +282,9 @@ class TournamentEngine:
                 latency_ms=hard_timeout * 1000,
                 model_id=model_name,
                 model_version=model_name,
-            ), False
+            ), False, err
         except AdapterError as exc:
+            err = f"{exc.error_type}: {exc.details}"
             print(f"[WARN] adapter error for {model_name}: {exc}")
             return AdapterResponse(
                 raw_text="",
@@ -291,8 +294,9 @@ class TournamentEngine:
                 latency_ms=0.0,
                 model_id=model_name,
                 model_version=model_name,
-            ), False
+            ), False, err
         except Exception as exc:
+            err = f"unexpected: {exc}"
             print(f"[WARN] unexpected error querying {model_name}: {exc}")
             return AdapterResponse(
                 raw_text="",
@@ -302,7 +306,7 @@ class TournamentEngine:
                 latency_ms=0.0,
                 model_id=model_name,
                 model_version=model_name,
-            ), False
+            ), False, err
 
     def _build_event(
         self, event_name: str, event_cfg: EventConfig, num_players: int = 2,
@@ -622,13 +626,13 @@ class TournamentEngine:
                 prompt = prompt + clock_notice
 
             # Query model
-            response, query_ok = self._safe_query(
+            response, query_ok, adapter_error = self._safe_query(
                 adapter, [{"role": "user", "content": prompt}], model_name, seed
             )
             if not query_ok:
                 referee.record_violation(
                     player_id, ViolationKind.TIMEOUT, severity=2,
-                    details="adapter error",
+                    details=adapter_error or "adapter error",
                 )
                 event.forfeit_turn(player_id)
                 if _handle_forfeit_turn(player_id, ViolationKind.TIMEOUT):
@@ -646,6 +650,7 @@ class TournamentEngine:
                         validation_result="forfeit",
                         violation=ViolationKind.TIMEOUT.value,
                         ruling=Ruling.FORFEIT_MATCH.value,
+                        adapter_error=adapter_error,
                         **_telemetry_extras(player_id, time_limit_ms, False),
                     )
                     break
@@ -663,6 +668,7 @@ class TournamentEngine:
                     validation_result="forfeit",
                     violation=ViolationKind.TIMEOUT.value,
                     ruling=_last_escalation_ruling or Ruling.FORFEIT_TURN.value,
+                    adapter_error=adapter_error,
                     **_telemetry_extras(player_id, time_limit_ms, False),
                 )
                 _check_stuck_loop(player_id, "timeout")
@@ -785,7 +791,7 @@ class TournamentEngine:
                     retry_prompt = event.get_retry_prompt(
                         player_id, parsed.error or "malformed JSON"
                     )
-                    response, retry_ok = self._safe_query(
+                    response, retry_ok, _retry_err = self._safe_query(
                         adapter,
                         [{"role": "user", "content": retry_prompt}],
                         model_name, seed,
@@ -856,7 +862,7 @@ class TournamentEngine:
                     retry_prompt = event.get_retry_prompt(
                         player_id, validation.reason or "illegal move"
                     )
-                    response, retry_ok = self._safe_query(
+                    response, retry_ok, _retry_err = self._safe_query(
                         adapter,
                         [{"role": "user", "content": retry_prompt}],
                         model_name, seed,
@@ -1141,7 +1147,7 @@ class TournamentEngine:
                 prompt = event.get_prompt(player_id)
 
                 # Query model
-                response, query_ok = self._safe_query(
+                response, query_ok, adapter_error = self._safe_query(
                     adapter, [{"role": "user", "content": prompt}], model_name, seed
                 )
 
@@ -1162,6 +1168,7 @@ class TournamentEngine:
                         validation_result="forfeit",
                         violation=ViolationKind.TIMEOUT.value,
                         ruling="forfeit_turn",
+                        adapter_error=adapter_error,
                     )
                     _check_player_stuck(player_id, model_name, "timeout")
                     continue
@@ -1324,6 +1331,7 @@ class TournamentEngine:
         time_exceeded: bool = False,
         cumulative_strikes: int = 0,
         strike_limit: int | None = None,
+        adapter_error: str | None = None,
     ) -> None:
         """Write a single turn entry to the telemetry log."""
         # Prefer native adapter reasoning (thinking blocks, o1); fall back
@@ -1362,6 +1370,7 @@ class TournamentEngine:
             time_exceeded=time_exceeded,
             cumulative_strikes=cumulative_strikes,
             strike_limit=strike_limit,
+            adapter_error=adapter_error,
         )
         logger.log_turn(entry)
 
