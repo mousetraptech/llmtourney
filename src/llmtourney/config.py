@@ -36,6 +36,8 @@ class EventConfig:
     round_cap: int | None = None
     player_starting_stacks: dict[str, int] | None = None  # per-model stacks
     fixed_roles: dict[str, str] | None = None  # per-player role assignments for Avalon
+    hints_per_game: int = 3  # diegetic hints per game (Storyteller)
+    pinned_hints: list[dict] | None = None  # override random hint assignment
 
 
 @dataclass
@@ -149,6 +151,8 @@ def load_config(path: Path) -> TournamentConfig:
             round_cap=e.get("round_cap"),
             player_starting_stacks=e.get("player_starting_stacks"),
             fixed_roles=e.get("fixed_roles"),
+            hints_per_game=e.get("hints_per_game", 3),
+            pinned_hints=e.get("pinned_hints"),
         )
 
     # Parse optional shot clock config

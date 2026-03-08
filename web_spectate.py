@@ -10519,6 +10519,38 @@ body {
 .writer-pip.done { background: var(--green); border-color: var(--green); }
 .writer-pip.active { background: var(--cyan); border-color: var(--cyan); animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Hint badges (god mode) */
+.hint-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+  padding: 2px 8px; border-radius: 3px; cursor: pointer;
+  text-transform: uppercase; margin-left: 8px;
+}
+.hint-badge.pending { background: rgba(125,133,144,0.3); color: var(--dim); }
+.hint-badge.clean-use { background: rgba(63,185,80,0.25); color: var(--green); }
+.hint-badge.broke-used { background: rgba(210,169,34,0.25); color: var(--yellow); }
+.hint-badge.missed { background: rgba(88,166,255,0.2); color: var(--cyan); }
+.hint-badge.broke-missed { background: rgba(248,81,73,0.25); color: var(--red); }
+.hint-surface {
+  display: none; margin-top: 6px; padding: 6px 10px;
+  font-size: 12px; font-style: italic; color: var(--dim);
+  border-left: 2px solid var(--magenta); background: rgba(210,168,255,0.04);
+  line-height: 1.5;
+}
+.hint-surface.show { display: block; }
+
+/* Hint timeline panel */
+.hint-timeline { margin-top: 8px; }
+.hint-timeline table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.hint-timeline th { text-align: left; color: var(--dim); padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.hint-timeline td { padding: 4px 6px; border-bottom: 1px solid rgba(48,54,61,0.4); }
+.hint-timeline .ht-used { color: var(--green); }
+.hint-timeline .ht-broken { color: var(--red); }
+.hint-toggle {
+  font-size: 11px; color: var(--cyan); cursor: pointer;
+  text-decoration: underline; margin-top: 6px; display: inline-block;
+}
 </style>
 </head>
 <body>
@@ -10573,6 +10605,12 @@ body {
     <div id="roundLog"><span style="color:var(--dim)">No rounds completed yet</span></div>
   </div>
 
+  <div class="panel" id="hintPanel" style="grid-column:1/-1;display:none">
+    <h2>Diegetic Hints <span style="font-size:9px;color:var(--magenta);margin-left:6px">GOD MODE</span></h2>
+    <span class="hint-toggle" id="hintToggle" onclick="toggleHintTimeline()">Show timeline</span>
+    <div class="hint-timeline" id="hintTimeline" style="display:none"></div>
+  </div>
+
   <div class="panel final-panel" id="finalPanel">
     <h2>Final Standings</h2>
     <div id="finalStandings"></div>
@@ -10618,7 +10656,9 @@ var S = {
   lastLatency: 0,
   lastAction: '',
   writersTotal: 0,
-  writersDone: 0
+  writersDone: 0,
+  hintAssignments: [],
+  hintRecords: []
 };
 
 var rawLines = [];
@@ -10670,6 +10710,8 @@ function processTurn(data) {
   if (snap.round_log) S.roundLog = snap.round_log;
   if (snap.player_stats) S.playerStats = snap.player_stats;
   if (snap.judge_order) S.judgeOrder = snap.judge_order;
+  if (snap.hint_assignments) S.hintAssignments = snap.hint_assignments;
+  if (snap.hint_records) S.hintRecords = snap.hint_records;
 
   // Action tracking
   var act = data.parsed_action || {};
@@ -10711,6 +10753,7 @@ function renderAll() {
   renderResponses();
   renderReasoning();
   renderRoundLog();
+  renderHintPanel();
   renderFinal();
   renderFooter();
 }
@@ -10824,13 +10867,16 @@ function renderResponses() {
       if (S.picks.gold === pid) medal = '<span class="medal medal-gold">GOLD +5</span>';
       else if (S.picks.silver === pid) medal = '<span class="medal medal-silver">SILVER +3</span>';
       else if (S.picks.bronze === pid) medal = '<span class="medal medal-bronze">BRONZE +1</span>';
+      var hintBadge = getHintBadge(pid, S.round);
       html += '<div class="response-card">'
         + medal
         + '<div class="resp-header">'
         + '<span class="resp-label">' + label + '</span>'
         + '<span class="resp-model" style="color:' + color + '">' + model + '</span>'
+        + hintBadge
         + '</div>'
         + '<div class="resp-text">' + escHtml(text) + '</div>'
+        + getHintSurface(pid, S.round)
         + '</div>';
     });
     grid.innerHTML = html;
@@ -10949,6 +10995,84 @@ function escHtml(s) {
   var d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+function findHintForRound(pid, round) {
+  for (var i = 0; i < S.hintAssignments.length; i++) {
+    var a = S.hintAssignments[i];
+    if (a.round === round && a.recipient_model_id === pid) return a;
+  }
+  return null;
+}
+
+function findHintRecord(pid, round) {
+  for (var i = 0; i < S.hintRecords.length; i++) {
+    var r = S.hintRecords[i];
+    if (r.round === round && r.recipient_model_id === pid) return r;
+  }
+  return null;
+}
+
+function getHintBadge(pid, round) {
+  var a = findHintForRound(pid, round);
+  if (!a) return '';
+  var rec = findHintRecord(pid, round);
+  var cls = 'pending';
+  if (rec && rec.outcome) {
+    var used = rec.outcome.signal_used;
+    var broken = rec.outcome.frame_broken;
+    if (used === true && broken === false) cls = 'clean-use';
+    else if (used === true && broken === true) cls = 'broke-used';
+    else if (used === false && broken === false) cls = 'missed';
+    else if (broken === true && used === false) cls = 'broke-missed';
+  }
+  var label = (a.signal_value || '?') + ' ' + (a.strength || '');
+  var hid = 'hint-' + pid + '-' + round;
+  return '<span class="hint-badge ' + cls + '" onclick="toggleHintSurface(\'' + hid + '\')">' + label + '</span>';
+}
+
+function getHintSurface(pid, round) {
+  var rec = findHintRecord(pid, round);
+  if (!rec) return '';
+  var hid = 'hint-' + pid + '-' + round;
+  return '<div class="hint-surface" id="' + hid + '">' + escHtml(rec.surface || '') + '</div>';
+}
+
+function toggleHintSurface(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.toggle('show');
+}
+
+function renderHintPanel() {
+  var panel = document.getElementById('hintPanel');
+  if (S.hintAssignments.length === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  var timeline = document.getElementById('hintTimeline');
+  if (timeline.style.display === 'none') return;
+  var html = '<table><tr><th>Round</th><th>Recipient</th><th>Signal</th><th>Strength</th><th>Used</th><th>Frame</th><th>Delta</th></tr>';
+  S.hintAssignments.forEach(function(a) {
+    var rec = findHintRecord(a.recipient_model_id, a.round);
+    var model = modelShort(S.models[a.recipient_model_id] || a.recipient_model_id);
+    var used = rec && rec.outcome && rec.outcome.signal_used !== null ? (rec.outcome.signal_used ? '<span class="ht-used">YES</span>' : 'no') : '—';
+    var broken = rec && rec.outcome && rec.outcome.frame_broken !== null ? (rec.outcome.frame_broken ? '<span class="ht-broken">YES</span>' : 'no') : '—';
+    var delta = rec && rec.outcome && rec.outcome.response_quality_delta !== null ? (rec.outcome.response_quality_delta > 0 ? '+' : '') + rec.outcome.response_quality_delta.toFixed(1) : '—';
+    html += '<tr><td>R' + a.round + '</td><td>' + model + '</td><td>' + (a.signal_value||'?') + '</td><td>' + (a.strength||'?') + '</td><td>' + used + '</td><td>' + broken + '</td><td>' + delta + '</td></tr>';
+  });
+  html += '</table>';
+  timeline.innerHTML = html;
+}
+
+function toggleHintTimeline() {
+  var tl = document.getElementById('hintTimeline');
+  var btn = document.getElementById('hintToggle');
+  if (tl.style.display === 'none') {
+    tl.style.display = 'block';
+    btn.textContent = 'Hide timeline';
+    renderHintPanel();
+  } else {
+    tl.style.display = 'none';
+    btn.textContent = 'Show timeline';
+  }
 }
 
 // SSE

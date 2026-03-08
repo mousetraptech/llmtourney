@@ -376,9 +376,16 @@ class TournamentEngine:
                 num_players=num_players,
             )
         if event_name == "storyteller":
+            # Resolve classifier API key for diegetic hints LLM pass
+            classifier_key = None
+            if event_cfg.hints_per_game > 0:
+                classifier_key = os.environ.get("OPENROUTER_API_KEY", "")
             return StorytellerEvent(
                 games_per_match=event_cfg.games_per_match,
                 num_players=num_players,
+                hints_per_game=event_cfg.hints_per_game,
+                classifier_api_key=classifier_key or None,
+                pinned_hints=event_cfg.pinned_hints,
             )
         if event_name == "spades":
             return SpadesEvent(
@@ -1022,6 +1029,22 @@ class TournamentEngine:
                 }
                 for pid in eliminated
             ]
+
+        # Write diegetic hint records to MongoDB (Storyteller only)
+        if (
+            isinstance(event, StorytellerEvent)
+            and hasattr(event, '_hint_records')
+            and event._hint_records
+            and self._mongo_sink
+        ):
+            # Set match_id on all records
+            for rec in event._hint_records:
+                rec["match_id"] = match_id
+            self._mongo_sink.log_hints(
+                match_id=match_id,
+                hint_records=event._hint_records,
+                tournament_context=tournament_context,
+            )
 
         logger.finalize_match(
             scores=scores,

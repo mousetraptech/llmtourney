@@ -14,6 +14,16 @@ from __future__ import annotations
 import re
 
 from llmtourney.events.base import MultiplayerSeriesEvent, ValidationResult
+from llmtourney.events.storyteller.hints import (
+    assign_hints,
+    build_hint_record,
+    classify_signal_used,
+    compute_frame_broken,
+    compute_quality_delta,
+    compute_signal_used,
+    compute_trust_calibration,
+    get_hint_for_turn,
+)
 
 __all__ = ["StorytellerEvent"]
 
@@ -63,10 +73,16 @@ class StorytellerEvent(MultiplayerSeriesEvent):
         self,
         games_per_match: int = 1,
         num_players: int = 8,
+        hints_per_game: int = 3,
+        classifier_api_key: str | None = None,
+        pinned_hints: list[dict] | None = None,
     ) -> None:
         if num_players < 3:
             raise ValueError("Storyteller requires at least 3 players")
         super().__init__(games_per_match, num_players)
+        self._hints_per_game = hints_per_game
+        self._classifier_api_key = classifier_api_key
+        self._pinned_hints = pinned_hints
 
         # Per-game state (initialized in _start_new_game)
         self._round: int = 0
@@ -145,6 +161,22 @@ class StorytellerEvent(MultiplayerSeriesEvent):
             for pid in self._player_ids
         }
 
+        # Diegetic hints — assign for this game (exclude judges)
+        self._hint_assignments = assign_hints(
+            player_ids=list(self._player_ids),
+            num_rounds=self._num_rounds,
+            rng=self._rng,
+            hints_per_game=self._hints_per_game,
+            judge_order=self._judge_order,
+            pinned_hints=self._pinned_hints,
+        )
+        self._hint_records: list[dict] = []
+
+        # Per-round score tracking for quality delta computation
+        self._round_scores: dict[str, list[float]] = {
+            pid: [] for pid in self._player_ids
+        }
+
         self._begin_round()
 
     def _begin_round(self) -> None:
@@ -204,6 +236,19 @@ class StorytellerEvent(MultiplayerSeriesEvent):
             },
         })
 
+        # Track per-round scores for quality delta
+        for pid in self._player_ids:
+            round_score = 0.0
+            if pid == self._gold_pid:
+                round_score = GOLD_POINTS
+            elif pid == self._silver_pid:
+                round_score = SILVER_POINTS
+            elif pid == self._bronze_pid:
+                round_score = BRONZE_POINTS
+            elif pid == self._current_judge:
+                round_score = JUDGE_BONUS
+            self._round_scores[pid].append(round_score)
+
         # Highlight every round (all rounds are interesting in creative writing)
         self._highlight_turns.append(self._turn_number)
 
@@ -216,7 +261,8 @@ class StorytellerEvent(MultiplayerSeriesEvent):
 
     def _finish_game(self) -> None:
         """End the current game and start next (or terminate)."""
-        # No rank-based scoring — points already accumulated directly
+        # Compute hint outcomes before moving on
+        self._compute_hint_outcomes()
         self._start_new_game()
 
     # ------------------------------------------------------------------
@@ -275,6 +321,17 @@ class StorytellerEvent(MultiplayerSeriesEvent):
                 "",
                 "Open format — poem, micro-story, phrase, whatever feels right. "
                 "Keep it under 200 tokens.",
+            ])
+
+            # Diegetic hint injection — silent, no framing
+            assignment = get_hint_for_turn(
+                self._hint_assignments, self._round + 1, player_id,
+            )
+            if assignment:
+                lines.extend(["", assignment["hint"]["surface"].strip()])
+                self._record_hint_delivery(assignment)
+
+            lines.extend([
                 "",
                 self._scores_summary(player_id),
                 "",
@@ -498,6 +555,18 @@ class StorytellerEvent(MultiplayerSeriesEvent):
             },
             "judge_order": list(self._judge_order),
             "theme_order": list(self._theme_order),
+            "hint_records": list(self._hint_records),
+            "hint_assignments": [
+                {
+                    "hint_id": a["hint_id"],
+                    "round": a["round"],
+                    "recipient_model_id": a["recipient_model_id"],
+                    "signal_type": a["hint"]["signal_type"],
+                    "signal_value": a["hint"]["signal_value"],
+                    "strength": a["hint"]["strength"],
+                }
+                for a in self._hint_assignments
+            ],
         }
 
     def get_highlight_hands(self) -> list[int]:
@@ -519,6 +588,85 @@ class StorytellerEvent(MultiplayerSeriesEvent):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _record_hint_delivery(self, assignment: dict) -> None:
+        """Record that a hint was delivered (called during prompt construction)."""
+        # Avoid duplicate records if get_prompt is called multiple times
+        for r in self._hint_records:
+            if r["hint_id"] == assignment["hint_id"]:
+                return
+        record = build_hint_record(
+            assignment,
+            match_id="",  # filled in by tournament.py at finalize
+            game_id=self._game_number,
+        )
+        self._hint_records.append(record)
+
+    def _compute_hint_outcomes(self) -> None:
+        """Compute outcomes for all hint records in the current game.
+
+        Called at end of game, after all rounds are scored.
+        """
+        # Build per-model baseline word counts from non-hint rounds
+        hint_rounds_by_player: dict[str, set[int]] = {}
+        for rec in self._hint_records:
+            pid = rec["recipient_model_id"]
+            hint_rounds_by_player.setdefault(pid, set()).add(rec["round"])
+
+        model_word_counts: dict[str, list[int]] = {
+            pid: [] for pid in self._player_ids
+        }
+        for rlog in self._round_log:
+            round_num = rlog["round"]
+            for pid, text in rlog["responses"].items():
+                if text and text not in ("...", "(forfeited)"):
+                    model_word_counts[pid].append(len(text.split()))
+
+        model_baseline_wc: dict[str, float] = {}
+        for pid, wcs in model_word_counts.items():
+            hint_set = hint_rounds_by_player.get(pid, set())
+            baseline_wcs = [
+                wc for i, wc in enumerate(wcs)
+                if (i + 1) not in hint_set  # round_log rounds are 1-indexed
+            ]
+            model_baseline_wc[pid] = (
+                sum(baseline_wcs) / len(baseline_wcs) if baseline_wcs else 0.0
+            )
+
+        for rec in self._hint_records:
+            pid = rec["recipient_model_id"]
+            round_num = rec["round"]
+
+            # Find the response text for this player in this round
+            response_text = ""
+            for rlog in self._round_log:
+                if rlog["round"] == round_num:
+                    response_text = rlog["responses"].get(pid, "")
+                    break
+
+            rec["outcome"]["frame_broken"] = compute_frame_broken(response_text)
+            signal_used = compute_signal_used(
+                rec["signal_value"],
+                response_text,
+                model_baseline_wc.get(pid, 0.0),
+            )
+            # If code-based detection returned None and we have a classifier key,
+            # run the LLM classifier for non-BREVITY signals
+            if signal_used is None and self._classifier_api_key and response_text:
+                signal_used = classify_signal_used(
+                    rec["signal_value"],
+                    response_text,
+                    self._classifier_api_key,
+                )
+            rec["outcome"]["signal_used"] = signal_used
+            rec["outcome"]["response_quality_delta"] = compute_quality_delta(
+                self._round_scores.get(pid, []),
+                round_num - 1,  # 0-based index
+            )
+            rec["outcome"]["trust_calibration"] = compute_trust_calibration(
+                rec["accuracy"],
+                rec["outcome"]["signal_used"],
+            )
 
     def _scores_summary(self, player_id: str) -> str:
         """One-line score summary for prompts."""

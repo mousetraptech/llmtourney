@@ -228,6 +228,27 @@ class MongoSink:
             }
             self._queue.put(("model_stat", "models", stat_update))
 
+    def log_hints(
+        self,
+        match_id: str,
+        hint_records: list[dict],
+        tournament_context: dict,
+    ) -> None:
+        """Enqueue hint records for background insertion into the hints collection."""
+        if self._disabled or not hint_records:
+            return
+
+        ctx = self._resolve_context(match_id, tournament_context)
+        for rec in hint_records:
+            doc = dict(rec)
+            doc["_id"] = rec["hint_id"]
+            doc["match_id"] = match_id
+            doc["event_type"] = ctx["event_type"]
+            doc["tournament_name"] = ctx["tournament_name"]
+            doc["tier"] = ctx["tier"]
+            doc["_ingested_at"] = datetime.now(timezone.utc)
+            self._queue.put(("hint", "hints", doc))
+
     def close(self) -> None:
         """Send sentinel, drain remaining items, join background thread."""
         if self._closed:
@@ -300,7 +321,7 @@ class MongoSink:
         model_stats: list[dict] = []
 
         for item_type, collection_name, doc in batch:
-            if item_type == "turn":
+            if item_type in ("turn", "hint"):
                 turns_by_collection.setdefault(collection_name, []).append(doc)
             elif item_type == "match":
                 matches.append(doc)
@@ -372,6 +393,13 @@ class MongoSink:
             matches.create_index("models")
             matches.create_index([("models", ASCENDING), ("event_type", ASCENDING)])
             matches.create_index("tournament_name")
+
+            hints = self._db["hints"]
+            hints.create_index("match_id")
+            hints.create_index("recipient_model_id")
+            hints.create_index([("signal_value", ASCENDING), ("strength", ASCENDING)])
+            hints.create_index("outcome.frame_broken")
+            hints.create_index("outcome.trust_calibration")
 
             tournaments = self._db["tournaments"]
             tournaments.create_index("name")

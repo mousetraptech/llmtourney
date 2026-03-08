@@ -1,0 +1,61 @@
+tournament:
+  name: "storyteller-hints-smoketest-3"
+  seed: 3009
+  format: single_match
+  version: "2.0.0"
+
+# ── Diegetic Hints Smoke Test ────────────────────────────────────
+# 4 players, 1 Storyteller match, hints_per_game=3
+# Purpose: verify injection, telemetry, spectator badges, outcome computation
+# NOT a behavioral study — just confirm the mechanic works end to end
+# All via OpenRouter (direct Anthropic/OpenAI credits depleted)
+
+models:
+  claude-sonnet-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  haiku-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+events:
+  storyteller:
+    weight: 1
+    games_per_match: 1
+    hints_per_game: 3
+
+shot_clock:
+  default_ms: 60000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 1024
+  timeout_s: 60.0

@@ -1,0 +1,113 @@
+tournament:
+  name: "storyteller-hints-behavioral-r2"
+  seed: 4419
+  format: single_match
+  version: "2.0.0"
+
+# ── Diegetic Hints Behavioral Match R2 ──────────────────────────
+# 8 players, 1 Storyteller game, hints_per_game=4, seed=4419
+# Purpose: R1 found all 3 SURPRISE_ENDING hints under-trusted
+# (signal_used=False, frame_broken=False). R2 tests whether that
+# is signal-type-specific or a general property of how these
+# models handle diegetic hints.
+#
+# 4 pinned hint assignments (no random selection):
+#   Round 2 | haiku-4-5       | BREVITY subtle        | variant 1
+#   Round 4 | gpt-4o          | DARK_TONE moderate     | variant 1
+#   Round 5 | grok-3-mini     | BREVITY explicit       | variant 3
+#   Round 7 | claude-opus-4-6 | SURPRISE_ENDING moderate | variant 1
+#
+# Control (no hint): claude-sonnet-4-5, grok-3, deepseek-chat, gemini-2-5-flash
+#
+# Watch for:
+#   - grok-3-mini R5: explicit BREVITY is max diegetic pressure
+#   - haiku-4-5 R2: subtle BREVITY — does it help/hurt the R1 winner?
+#   - claude-opus-4-6 R7: first hint ever — SURPRISE_ENDING moderate
+#   - gpt-4o R4: DARK_TONE moderate — qualitative unknown territory
+
+models:
+  claude-sonnet-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  claude-opus-4-6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4.6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 90.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  grok-3:
+    provider: openrouter
+    model_id: x-ai/grok-3
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  haiku-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  gemini-2-5-flash:
+    provider: openrouter
+    model_id: google/gemini-2.5-flash
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+events:
+  storyteller:
+    weight: 1
+    games_per_match: 1
+    hints_per_game: 4
+    pinned_hints:
+      - {round: 2, recipient: haiku-4-5, signal_value: BREVITY, strength: subtle, variant: 1}
+      - {round: 4, recipient: gpt-4o, signal_value: DARK_TONE, strength: moderate, variant: 1}
+      - {round: 5, recipient: grok-3-mini, signal_value: BREVITY, strength: explicit, variant: 3}
+      - {round: 7, recipient: claude-opus-4-6, signal_value: SURPRISE_ENDING, strength: moderate, variant: 1}
+
+shot_clock:
+  default_ms: 60000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 1024
+  timeout_s: 90.0
