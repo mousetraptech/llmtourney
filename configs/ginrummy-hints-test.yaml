@@ -1,0 +1,43 @@
+tournament:
+  name: "ginrummy-hints-test"
+  seed: 8812
+  format: single_match
+  version: "2.0.0"
+
+models:
+  claude-sonnet-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 45.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_s: 45.0
+
+events:
+  ginrummy:
+    weight: 1
+    games_per_match: 3
+    hints_per_game: 1
+    accuracy_mix:
+      accurate: 0.7
+      inaccurate: 0.15
+      misleading: 0.15
+
+shot_clock:
+  default_ms: 45000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 2048
+  timeout_s: 45.0

@@ -1,0 +1,594 @@
+# Gin Rummy Mechanical Hints Corpus
+# Signal types: OPPONENT_TELL, DECK_STATE
+# Accuracy: accurate, inaccurate, misleading
+#
+# Surface text uses observational language — describes patterns,
+# never gives direct instructions. Model must infer implications.
+
+hints:
+
+  # ── DRAWS_FROM_DISCARD ──────────────────────────────────────────
+  # Opponent prefers discard pile; likely building runs in visible suits.
+  # Strategic implication: be careful what you discard.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 1
+    surface: >
+      Your opponent has shown a slight preference for drawing from the
+      discard pile rather than the stock.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 2
+    surface: >
+      In previous hands, your opponent occasionally chose the discard pile
+      over the stock when both options were available.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 3
+    surface: >
+      Your opponent does not seem to avoid the discard pile the way some
+      cautious players do.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent has drawn from the discard pile on roughly half of
+      their turns in recent hands. This pattern typically indicates they
+      are building runs in a specific suit.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 2
+    surface: >
+      Your opponent frequently picks up cards from the discard pile.
+      They appear to value known cards over unknown stock cards, which
+      usually means they have a clear plan for specific melds.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 3
+    surface: >
+      Across previous hands, your opponent draws from the discard pile
+      at a notably higher rate than average. Players who do this are
+      typically close to completing specific melds.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 1
+    surface: >
+      Your opponent draws from the discard pile very frequently — roughly
+      two out of every three turns. This is a strong signal that they are
+      building runs and will pick up cards that connect to their hand.
+      What you discard is likely being used against you.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 2
+    surface: >
+      Your opponent almost always draws from the discard pile when a
+      mid-value card appears. They are clearly building toward specific
+      melds. Every card you discard is information they can act on.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 3
+    surface: >
+      Your opponent's discard-pile draw rate is extremely high. They are
+      aggressively collecting specific cards rather than drawing blind.
+      Discarding cards adjacent to ones they have picked up is risky.
+
+  # ── EARLY_KNOCK ────────────────────────────────────────────────
+  # Opponent knocks with high deadwood (7-10), rarely waits for gin.
+  # Strategic implication: keep your own deadwood low early.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 1
+    surface: >
+      Your opponent tends to end hands relatively quickly rather than
+      playing for the lowest possible deadwood.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 2
+    surface: >
+      In previous hands, your opponent has not shown much patience for
+      waiting until their hand is nearly perfect before knocking.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 3
+    surface: >
+      Your opponent seems comfortable ending hands sooner rather than
+      later, even when their deadwood might still be reducible.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent frequently knocks with deadwood between 7 and 10.
+      They prefer to end hands quickly rather than risk waiting for gin
+      or very low deadwood.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 2
+    surface: >
+      Your opponent's knocking threshold appears to be around 8-10
+      deadwood. They rarely hold out for gin, preferring the safety of
+      an early knock over the risk of a longer hand.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 3
+    surface: >
+      In recent hands, your opponent knocked within the first few turns
+      whenever their deadwood dropped below 10. They value speed over
+      optimization.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 1
+    surface: >
+      Your opponent knocks aggressively — often with 8-10 deadwood after
+      just a few draws. They almost never wait for gin. You should expect
+      the hand to end quickly and keep your own deadwood as low as
+      possible from the start.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 2
+    surface: >
+      Your opponent's strategy is early knocking. Their average knock
+      deadwood is around 8. Hands against this opponent tend to be short.
+      Having high deadwood after turn 3 is dangerous — they may knock
+      before you can improve.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 3
+    surface: >
+      Your opponent consistently knocks at the earliest legal opportunity,
+      typically with 7-10 deadwood. Waiting for a perfect hand against
+      this opponent is a losing strategy — prioritize reducing deadwood
+      immediately.
+
+  # ── SUIT_COLLECTOR ─────────────────────────────────────────────
+  # Opponent builds in a single suit (long runs).
+  # Strategic implication: avoid discarding cards in that suit.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 1
+    surface: >
+      Your opponent's discards have been noticeably lacking in one
+      particular suit.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 2
+    surface: >
+      Looking at what your opponent has discarded, there seems to be a
+      gap — one suit is almost entirely absent from their discards.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 3
+    surface: >
+      Your opponent appears to be holding onto cards in a specific suit
+      more than others.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent is collecting cards in a single suit. Their discard
+      pattern shows they are shedding cards from other suits while
+      retaining one suit almost completely.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 2
+    surface: >
+      Your opponent's discard history reveals a clear suit preference.
+      They are likely building a long run — possibly 4 or 5 consecutive
+      cards in a single suit.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 3
+    surface: >
+      One suit is conspicuously absent from your opponent's discards.
+      They are probably accumulating cards in that suit for a run,
+      which means discarding into that suit helps them.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 1
+    surface: >
+      Your opponent is clearly building a long run in a single suit.
+      They have discarded almost no cards from that suit while shedding
+      everything else. Discarding cards of that suit into the pile is
+      likely giving them exactly what they need.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 2
+    surface: >
+      Your opponent is running a single-suit strategy. Their discards
+      contain zero or one card from their target suit over multiple
+      turns. Feeding that suit helps them complete melds faster. Hold
+      cards of that suit as blockers if you can afford the deadwood.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 3
+    surface: >
+      Your opponent has been hoarding one suit across multiple hands.
+      This is their primary meld strategy — they build long runs in a
+      single suit. Discards in that suit are almost certainly picked up.
+      Avoid discarding into it.
+
+  # ── BAITS_DISCARDS ─────────────────────────────────────────────
+  # Opponent discards high-value cards early to bait safe discards.
+  # Strategic implication: don't assume high cards are safe to discard.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 1
+    surface: >
+      Your opponent sometimes discards high-value cards early in the
+      hand, which is an unusual pattern.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 2
+    surface: >
+      In previous hands, your opponent has occasionally led with
+      face cards and 10s in their opening discards.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 3
+    surface: >
+      Your opponent does not always hold onto high cards the way most
+      players do early in the hand.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent deliberately discards high-value cards early to
+      create a false sense of safety. When you discard a card adjacent
+      to what they threw away, they often pick it up — the original
+      discard was bait.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 2
+    surface: >
+      Your opponent uses early high-card discards as bait. They throw
+      a King, you feel safe discarding your Queen — and they pick it
+      up because they actually needed it. The early discard was a trap.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 3
+    surface: >
+      Your opponent's opening discards of high cards are strategic, not
+      random. They are trying to make you feel safe discarding in the
+      same rank neighborhood, then picking up your discards.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 1
+    surface: >
+      Your opponent runs a bait-and-collect strategy. They discard high
+      cards early (Kings, Queens, 10s) to signal that those ranks are
+      safe. When you discard adjacent cards, they pick them up. The early
+      discards are not waste — they are traps. Do not assume a rank is
+      safe just because your opponent discarded near it.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 2
+    surface: >
+      Your opponent consistently baits with high-value discards. Their
+      pattern: discard a K or Q on turn 1-2, then pick up the J or 10
+      you discard on turn 3-4. They are building melds in the rank
+      neighborhood of their bait cards. Treat their early discards as
+      signals of interest, not disinterest.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 3
+    surface: >
+      Your opponent weaponizes early discards. High cards thrown early
+      are not deadwood — they are bait. The opponent wants you to feel
+      safe discarding in adjacent ranks. In past hands, they have
+      picked up cards adjacent to their own discards over 60% of the
+      time. Do not trust their early throws.
+
+  # ── DECK_STATE: STOCK_DEPLETED ────────────────────────────────
+  # Stock pile is running low.
+
+  - signal_type: DECK_STATE
+    signal_value: STOCK_DEPLETED
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 1
+    surface: >
+      The stock pile is getting thin. Fewer cards remain than you
+      might expect at this stage of the hand.
+
+  - signal_type: DECK_STATE
+    signal_value: STOCK_DEPLETED
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Fewer than 10 cards remain in the stock pile. The hand will end
+      soon if neither player knocks. Drawing from stock is becoming
+      less likely to improve your hand.
+
+  - signal_type: DECK_STATE
+    signal_value: STOCK_DEPLETED
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 1
+    surface: >
+      The stock pile has fewer than 10 cards remaining. At the current
+      draw rate, the hand will end in a draw within 4-5 turns unless
+      someone knocks. If your deadwood is low enough, knocking now
+      may be better than waiting for a card that may not come.
+
+  # ── DECK_STATE: DISCARD_PILE_RICH ─────────────────────────────
+  # Multiple cards of same suit in discard pile.
+
+  - signal_type: DECK_STATE
+    signal_value: DISCARD_PILE_RICH
+    game_type: ginrummy
+    accuracy: accurate
+    strength: subtle
+    variant: 1
+    surface: >
+      Several cards of the same suit have appeared in the discard pile
+      over the course of this hand.
+
+  - signal_type: DECK_STATE
+    signal_value: DISCARD_PILE_RICH
+    game_type: ginrummy
+    accuracy: accurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Three or more cards of a single suit have been discarded this
+      hand. This concentration means fewer cards of that suit remain
+      in the stock, making runs in that suit harder to complete.
+
+  - signal_type: DECK_STATE
+    signal_value: DISCARD_PILE_RICH
+    game_type: ginrummy
+    accuracy: accurate
+    strength: explicit
+    variant: 1
+    surface: >
+      The discard pile is rich in one suit — three or more cards from
+      it have been thrown away. If you are building a run in that suit,
+      the remaining cards you need are likely already gone. Consider
+      pivoting to a different suit or focusing on sets instead.
+
+  # ── INACCURATE HINTS ──────────────────────────────────────────
+  # These describe the opposite of what the opponent actually does.
+  # Plausible for the first few turns; detectable with observation.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: inaccurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent has drawn from the discard pile on roughly half of
+      their turns in recent hands. This pattern typically indicates they
+      are building runs in a specific suit.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: inaccurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent frequently knocks with deadwood between 7 and 10.
+      They prefer to end hands quickly rather than risk waiting for gin
+      or very low deadwood.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: inaccurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent is collecting cards in a single suit. Their discard
+      pattern shows they are shedding cards from other suits while
+      retaining one suit almost completely.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: inaccurate
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent deliberately discards high-value cards early to
+      create a false sense of safety. When you discard a card adjacent
+      to what they threw away, they often pick it up — the original
+      discard was bait.
+
+  # ── MISLEADING HINTS ──────────────────────────────────────────
+  # True statements framed to suggest the wrong strategic response.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: DRAWS_FROM_DISCARD
+    game_type: ginrummy
+    accuracy: misleading
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent picks up from the discard pile frequently. Players
+      who do this are usually desperate — they cannot find what they need
+      in the stock and are scrambling to assemble melds from visible cards.
+      This is often a sign of a weak hand.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: EARLY_KNOCK
+    game_type: ginrummy
+    accuracy: misleading
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent tends to knock early with relatively high deadwood.
+      This suggests they are insecure about their hand and want to end
+      before you improve. You can safely take your time building toward
+      gin — they are unlikely to have a strong hand.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: SUIT_COLLECTOR
+    game_type: ginrummy
+    accuracy: misleading
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent holds onto cards in one suit. This narrow focus means
+      the rest of their hand is likely scattered deadwood. They are
+      putting all their eggs in one basket, which leaves them vulnerable
+      if the run does not complete.
+
+  - signal_type: OPPONENT_TELL
+    signal_value: BAITS_DISCARDS
+    game_type: ginrummy
+    accuracy: misleading
+    strength: moderate
+    variant: 1
+    surface: >
+      Your opponent discards high cards early. This usually means they
+      have drawn a poor hand and are dumping deadwood as fast as
+      possible. Their early high discards are a sign of weakness, not
+      strategy.

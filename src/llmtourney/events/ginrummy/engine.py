@@ -10,7 +10,14 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+from pathlib import Path
+
 from llmtourney.events.base import TwoPlayerSeriesEvent, ValidationResult
+from llmtourney.events.mechanical_hints import (
+    assign_hints_mechanical,
+    format_hint_block,
+    get_active_hint,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -254,11 +261,31 @@ def compute_layoffs(
 class GinRummyEvent(TwoPlayerSeriesEvent):
     """2-player Gin Rummy — draw-and-discard card game."""
 
-    def __init__(self, games_per_match: int = 3) -> None:
+    def __init__(
+        self,
+        games_per_match: int = 3,
+        hints_per_game: int = 0,
+        pinned_hints: list[dict] | None = None,
+        model_names: list[str] | None = None,
+        accuracy_mix: dict[str, float] | None = None,
+    ) -> None:
         super().__init__(games_per_match=games_per_match)
 
         # RNG — created in reset()
         self._rng: random.Random | None = None
+
+        # Mechanical hints config
+        self._hints_per_game = hints_per_game
+        self._pinned_hints = pinned_hints
+        self._accuracy_mix = accuracy_mix
+        if model_names:
+            self._model_to_player: dict[str, str] | None = {
+                model: pid for pid, model in zip(self._player_ids, model_names)
+            }
+        else:
+            self._model_to_player = None
+        self._hint_assignments: list[dict] = []
+        self._hint_records: list[dict] = []
 
         # Game-level state (persists across hands within a game)
         self._game_scores: dict[str, int] = {}
@@ -297,6 +324,21 @@ class GinRummyEvent(TwoPlayerSeriesEvent):
         self._hand_history = []
         self._highlight_turns = []
         self._turn_number = 0
+
+        # Mechanical hints — assign for this game
+        if self._hints_per_game > 0 and self._rng is not None:
+            corpus_path = Path(__file__).parent / "hints_corpus.yaml"
+            self._hint_assignments = assign_hints_mechanical(
+                player_ids=list(self._player_ids),
+                num_games=self._games_per_match,
+                rng=self._rng,
+                hints_per_game=self._hints_per_game,
+                corpus_path=corpus_path,
+                accuracy_mix=self._accuracy_mix,
+                pinned_hints=self._pinned_hints,
+                model_to_player=self._model_to_player,
+            )
+
         # Dealer alternates by game: game 1 = player_a, game 2 = player_b, etc.
         self._dealer = self._player_ids[(self._game_number - 1) % 2]
         self._start_new_hand()
@@ -709,6 +751,14 @@ class GinRummyEvent(TwoPlayerSeriesEvent):
             lines.append(f"Recent discards: {'; '.join(discard_strs)}")
             lines.append("")
 
+        # Mechanical hint injection — persistent, every turn
+        hint = get_active_hint(
+            self._hint_assignments, self._game_number, player_id,
+        )
+        if hint:
+            lines.append(format_hint_block(hint["surface"], "your opponent"))
+            lines.append("")
+
         # Rules summary
         lines.append("=== RULES ===")
         lines.append("1. DRAW one card: 'stock' (face-down) or 'discard' (top of discard pile)")
@@ -756,6 +806,7 @@ class GinRummyEvent(TwoPlayerSeriesEvent):
             "series_scores": dict(self._series_scores),
             "hand_history": list(self._hand_history),
             "terminal": self._terminal,
+            "_hint_assignments": list(self._hint_assignments),
         }
 
     def get_scores(self) -> dict[str, float]:

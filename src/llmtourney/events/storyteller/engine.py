@@ -76,6 +76,7 @@ class StorytellerEvent(MultiplayerSeriesEvent):
         hints_per_game: int = 3,
         classifier_api_key: str | None = None,
         pinned_hints: list[dict] | None = None,
+        model_names: list[str] | None = None,
     ) -> None:
         if num_players < 3:
             raise ValueError("Storyteller requires at least 3 players")
@@ -83,6 +84,14 @@ class StorytellerEvent(MultiplayerSeriesEvent):
         self._hints_per_game = hints_per_game
         self._classifier_api_key = classifier_api_key
         self._pinned_hints = pinned_hints
+
+        # Build model-name → player-slot mapping for pinned hint resolution
+        if model_names:
+            self._model_to_player: dict[str, str] | None = {
+                model: pid for pid, model in zip(self._player_ids, model_names)
+            }
+        else:
+            self._model_to_player = None
 
         # Per-game state (initialized in _start_new_game)
         self._round: int = 0
@@ -169,6 +178,7 @@ class StorytellerEvent(MultiplayerSeriesEvent):
             hints_per_game=self._hints_per_game,
             judge_order=self._judge_order,
             pinned_hints=self._pinned_hints,
+            model_to_player=self._model_to_player,
         )
         self._hint_records: list[dict] = []
 

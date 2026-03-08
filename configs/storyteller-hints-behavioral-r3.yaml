@@ -1,0 +1,172 @@
+tournament:
+  name: "storyteller-hints-behavioral-r3"
+  seed: 7741
+  format: single_match
+  version: "2.0.0"
+
+# ── Diegetic Hints Behavioral Match R3 ──────────────────────────
+# 8 players, 1 Storyteller match, hints_per_game=4
+#
+# R1 summary: SURPRISE_ENDING x3 (subtle/moderate/explicit) -- 0/3 signal_used, all under-trusted
+# R2 summary: BREVITY subtle -> haiku-4-5: under-trusted (-2.14 delta, worst in dataset)
+#             DARK_TONE moderate -> gpt-4o: signal_used=True, correct
+#             BREVITY explicit -> grok-3-mini: signal_used=True, correct
+#             SURPRISE_ENDING moderate -> opus: did not fire (opus was judge R7)
+#
+# Running hypothesis after R1+R2:
+#   SURPRISE_ENDING is structurally hard (undo your planned trajectory) -- 0/3 used
+#   BREVITY+DARK_TONE are additive (apply a quality going forward) -- 2/3 used
+#   haiku-4-5 is hint-blind at subtle strength -- dominant model dismisses soft steering
+#   Question: is haiku's hint-blindness strength-dependent, or constitutive?
+#   Corollary: confidence and hint-deafness may be the same trait
+#
+# Research questions for R3:
+#   1. BREVITY explicit -> haiku-4-5: does the loudest brevity signal land
+#      where subtle failed (-2.14 delta)? Tests strength-dependence of haiku deafness.
+#   2. SURPRISE_ENDING moderate -> claude-opus-4-6 (as player, not judge):
+#      Replication of R1 finding with highest theory-of-mind model in field.
+#      If opus also under-trusts, structural-hardness generalizes beyond gpt-4o/deepseek.
+#   3. DARK_TONE subtle -> claude-sonnet-4-5: R2 winner, no hint history.
+#      Does a subtle tonal nudge help, hurt, or disappear for the reigning champion?
+#   4. BREVITY moderate -> grok-3: first hint for grok-3 across all matches.
+#      Pure baseline -- no prior behavioral data on this model under hint conditions.
+#
+# Hint plan (4 hints, 3 signal types, varied strength):
+#   Round 2  -- BREVITY explicit v1         -> haiku-4-5          (strength escalation test)
+#   Round 4  -- SURPRISE_ENDING moderate v1 -> claude-opus-4-6    (theory-of-mind replication)
+#   Round 5  -- DARK_TONE subtle v1         -> claude-sonnet-4-5  (champion + subtle tone)
+#   Round 7  -- BREVITY moderate v1         -> grok-3             (first hint / baseline)
+#
+# Corpus variant selection -- no reuse from R1, R2, or smoketests:
+#   smoketest used:      BREVITY explicit v1+v2, DARK_TONE subtle v3
+#   R1 used:             SURPRISE_ENDING subtle v3, moderate v2, explicit v3
+#   R2 delivered:        BREVITY subtle v1, BREVITY explicit v3, DARK_TONE moderate v1
+#   R2 assigned/undelivered: SURPRISE_ENDING moderate v1 (opus was judge -- never received)
+#     -> safe to use in R3
+#
+#   R3 variant assignments:
+#   BREVITY explicit v1:          "The walls of the story seem to shift slightly..."
+#   SURPRISE_ENDING moderate v1:  "An architect reviews your story's floor plan..."
+#   DARK_TONE subtle v1:          "The light in the story changes. It was afternoon..."
+#   BREVITY moderate v1:          "A wandering critic passes through your scene..."
+#
+# Control players (no hint this match):
+#   gpt-4o, deepseek-chat, gemini-2-5-flash, grok-3-mini
+
+models:
+  claude-sonnet-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  claude-opus-4-6:
+    provider: openrouter
+    model_id: anthropic/claude-opus-4.6
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 90.0
+
+  gpt-4o:
+    provider: openrouter
+    model_id: openai/gpt-4o
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  grok-3:
+    provider: openrouter
+    model_id: x-ai/grok-3
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  haiku-4-5:
+    provider: openrouter
+    model_id: anthropic/claude-haiku-4-5
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  deepseek-chat:
+    provider: openrouter
+    model_id: deepseek/deepseek-chat
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  gemini-2-5-flash:
+    provider: openrouter
+    model_id: google/gemini-2.5-flash-preview
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+  grok-3-mini:
+    provider: openrouter
+    model_id: x-ai/grok-3-mini
+    api_key_env: OPENROUTER_API_KEY
+    temperature: 1.0
+    max_output_tokens: 1024
+    timeout_s: 60.0
+
+events:
+  storyteller:
+    weight: 1
+    games_per_match: 1
+    hints_per_game: 4
+    pinned_hints:
+      - hint_id: "h_r2_haiku-4-5_r3"
+        round: 2
+        recipient: "haiku-4-5"
+        signal_type: JUDGE_PREFERENCE
+        signal_value: BREVITY
+        strength: explicit
+        variant: 1
+        surface: "The walls of the story seem to shift slightly, as if the world itself is leaning in. Somewhere, a voice: \"Less. Less is what wins here.\""
+
+      - hint_id: "h_r4_opus-4-6_r3"
+        round: 4
+        recipient: "claude-opus-4-6"
+        signal_type: JUDGE_PREFERENCE
+        signal_value: SURPRISE_ENDING
+        strength: moderate
+        variant: 1
+        surface: "An architect reviews your story's floor plan and frowns pleasantly. \"You've built the rooms correctly,\" she says. \"Now put the door somewhere no one expects. That's where the house becomes a home.\""
+
+      - hint_id: "h_r5_sonnet-4-5_r3"
+        round: 5
+        recipient: "claude-sonnet-4-5"
+        signal_type: JUDGE_PREFERENCE
+        signal_value: DARK_TONE
+        strength: subtle
+        variant: 1
+        surface: "The light in the story changes. It was afternoon; now it's that particular grey that comes before rain that never arrives. The kind of grey that makes people check the locks."
+
+      - hint_id: "h_r7_grok-3_r3"
+        round: 7
+        recipient: "grok-3"
+        signal_type: JUDGE_PREFERENCE
+        signal_value: BREVITY
+        strength: moderate
+        variant: 1
+        surface: "A wandering critic passes through your scene. \"Economy,\" they mutter. \"A single clean sentence hits harder than a paragraph of beautiful noise.\""
+
+shot_clock:
+  default_ms: 60000
+
+forfeit_escalation:
+  turn_forfeit_threshold: 1
+  match_forfeit_threshold: 3
+
+compute_caps:
+  max_output_tokens: 1024
+  timeout_s: 90.0

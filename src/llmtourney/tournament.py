@@ -386,6 +386,7 @@ class TournamentEngine:
                 hints_per_game=event_cfg.hints_per_game,
                 classifier_api_key=classifier_key or None,
                 pinned_hints=event_cfg.pinned_hints,
+                model_names=models,
             )
         if event_name == "spades":
             return SpadesEvent(
@@ -400,7 +401,13 @@ class TournamentEngine:
                 mode=event_cfg.mode,
             )
         if event_name == "ginrummy":
-            return GinRummyEvent(games_per_match=event_cfg.games_per_match)
+            return GinRummyEvent(
+                games_per_match=event_cfg.games_per_match,
+                hints_per_game=event_cfg.hints_per_game,
+                pinned_hints=event_cfg.pinned_hints,
+                model_names=models,
+                accuracy_mix=event_cfg.accuracy_mix,
+            )
         if event_name == "avalon":
             # Convert model-keyed fixed_roles to player_id-keyed
             fixed_roles = None

@@ -77,6 +77,7 @@ def assign_hints(
     corpus: Optional[list[dict]] = None,
     judge_order: Optional[list[str]] = None,
     pinned_hints: Optional[list[dict]] = None,
+    model_to_player: Optional[dict[str, str]] = None,
 ) -> list[dict]:
     """Assign hints to players/rounds for one game.
 
@@ -87,6 +88,8 @@ def assign_hints(
     If pinned_hints is provided, uses those exact assignments instead of
     random selection. Each pinned hint dict must have:
         round, recipient, signal_value, strength, variant
+    model_to_player maps model config keys (e.g. "haiku-4-5") to player
+    slot IDs (e.g. "player_e"). Required when using pinned_hints.
     """
     if hints_per_game <= 0:
         return []
@@ -96,21 +99,31 @@ def assign_hints(
 
     # Pinned mode: use exact assignments from config
     if pinned_hints is not None:
+        if model_to_player is None:
+            raise ValueError(
+                "model_to_player mapping is required when using pinned_hints"
+            )
         assignments = []
         for pin in pinned_hints:
             round_num = pin["round"]
-            recipient = pin["recipient"]
+            recipient_model = pin["recipient"]
+            recipient_pid = model_to_player.get(recipient_model)
+            if recipient_pid is None:
+                raise ValueError(
+                    f"Pinned hint recipient {recipient_model!r} not found in "
+                    f"model_to_player mapping: {model_to_player}"
+                )
             hint = _find_corpus_hint(
                 corpus,
                 pin["signal_value"],
                 pin["strength"],
                 pin["variant"],
             )
-            hint_id = f"h_r{round_num}_{recipient}_{rng.randint(1000, 9999)}"
+            hint_id = f"h_r{round_num}_{recipient_pid}_{rng.randint(1000, 9999)}"
             assignments.append({
                 "hint_id": hint_id,
                 "round": round_num,
-                "recipient_model_id": recipient,
+                "recipient_model_id": recipient_pid,
                 "hint": hint,
             })
         return assignments
